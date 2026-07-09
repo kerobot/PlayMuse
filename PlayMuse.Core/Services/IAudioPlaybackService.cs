@@ -17,7 +17,17 @@ public interface IAudioPlaybackService : IDisposable
 
     AudioDeviceInfo? OutputDevice { get; }
 
+    /// <summary>
+    /// ユーザー設定として要求されている共有モード（<see cref="SetShareMode"/>で指定した値）。
+    /// </summary>
     AudioShareMode ShareMode { get; }
+
+    /// <summary>
+    /// 現在の出力に実際に適用されている共有モード。
+    /// 排他モードが要求されていても、対象トラックのフォーマットがデバイスの排他モードに非対応、
+    /// または他アプリの排他使用中等で初期化に失敗した場合は<see cref="AudioShareMode.Shared"/>にフォールバックされる。
+    /// </summary>
+    AudioShareMode ActualShareMode { get; }
 
     event EventHandler<PlaybackState>? StateChanged;
 

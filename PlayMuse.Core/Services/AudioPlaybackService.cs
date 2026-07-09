@@ -13,6 +13,18 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
 {
     private const int LatencyMilliseconds = 200;
 
+    /// <summary>
+    /// WASAPI排他モード関連のHResult値。
+    /// NAudioの内部型(NAudio.CoreAudioApi.Interfaces.AudioClientErrorCode)と同値をここに転記し、
+    /// 内部名前空間への直接依存を避ける。
+    /// </summary>
+    private static class ExclusiveModeHResult
+    {
+        public const int UnsupportedFormat = -2004287480;
+        public const int DeviceInUse = -2004287478;
+        public const int ExclusiveModeNotAllowed = -2004287474;
+    }
+
     private AudioFileReader? reader;
     private WasapiOut? output;
     private MMDevice? currentMMDevice;
@@ -68,6 +80,8 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
     public AudioDeviceInfo? OutputDevice { get; private set; }
 
     public AudioShareMode ShareMode { get; private set; } = AudioShareMode.Shared;
+
+    public AudioShareMode ActualShareMode { get; private set; } = AudioShareMode.Shared;
 
     public event EventHandler<PlaybackState>? StateChanged;
 
@@ -214,14 +228,76 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
     {
         currentMMDevice = ResolveDevice(OutputDevice);
 
-        var shareModeNative = ShareMode == AudioShareMode.Exclusive
+        var requestedShareMode = ShareMode == AudioShareMode.Exclusive
             ? AudioClientShareMode.Exclusive
             : AudioClientShareMode.Shared;
 
+        if (requestedShareMode == AudioClientShareMode.Exclusive
+            && !IsExclusiveFormatSupported(currentMMDevice, reader!.WaveFormat))
+        {
+            requestedShareMode = AudioClientShareMode.Shared;
+            RaiseError("現在の出力デバイスはこのファイルの形式(サンプルレート/ビット深度)での排他モード再生に対応していないため、共有モードで再生します。");
+        }
+
+        try
+        {
+            InitializeOutputCore(requestedShareMode);
+        }
+        catch (Exception ex) when (requestedShareMode == AudioClientShareMode.Exclusive)
+        {
+            // 事前検証を通過していても、他アプリが既にデバイスを排他使用中である等の動的要因で
+            // 初期化に失敗することがある。この場合は共有モードへフォールバックして再試行する。
+            RaiseError(BuildExclusiveModeFailureMessage(ex), ex);
+            InitializeOutputCore(AudioClientShareMode.Shared);
+        }
+    }
+
+    private void InitializeOutputCore(AudioClientShareMode shareModeNative)
+    {
         var newOutput = new WasapiOut(currentMMDevice, shareModeNative, true, LatencyMilliseconds);
         newOutput.PlaybackStopped += OnPlaybackStopped;
         newOutput.Init(reader);
         output = newOutput;
+        ActualShareMode = shareModeNative == AudioClientShareMode.Exclusive
+            ? AudioShareMode.Exclusive
+            : AudioShareMode.Shared;
+    }
+
+    /// <summary>
+    /// 対象デバイスが指定フォーマットでの排他モード再生に対応しているかを事前検証する。
+    /// 検証自体が例外を投げた場合は「非対応」として扱い、安全側（共有モード）にフォールバックする。
+    /// </summary>
+    private static bool IsExclusiveFormatSupported(MMDevice device, WaveFormat format)
+    {
+        try
+        {
+            return device.AudioClient.IsFormatSupported(AudioClientShareMode.Exclusive, format);
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 排他モードでの初期化失敗時に、原因別のユーザー向けメッセージを組み立てる。
+    /// </summary>
+    private static string BuildExclusiveModeFailureMessage(Exception ex)
+    {
+        if (ex is System.Runtime.InteropServices.COMException comEx)
+        {
+            switch (comEx.HResult)
+            {
+                case ExclusiveModeHResult.DeviceInUse:
+                    return "他のアプリケーションが出力デバイスを排他使用中のため、排他モードで再生できませんでした。共有モードで再生します。";
+                case ExclusiveModeHResult.ExclusiveModeNotAllowed:
+                    return "出力デバイスが排他モードでの再生を許可していないため、共有モードで再生します。";
+                case ExclusiveModeHResult.UnsupportedFormat:
+                    return "出力デバイスがこのファイルの形式での排他モード再生に対応していないため、共有モードで再生します。";
+            }
+        }
+
+        return "排他モードでの再生開始に失敗したため、共有モードで再生します。";
     }
 
     private void TeardownOutput()
@@ -262,7 +338,7 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
         PlaybackCompleted?.Invoke(this, EventArgs.Empty);
     }
 
-    private void RaiseError(string message, Exception exception)
+    private void RaiseError(string message, Exception? exception = null)
     {
         ErrorOccurred?.Invoke(this, new AudioErrorEventArgs(message, exception));
     }
