@@ -15,6 +15,14 @@ public class SupportedAudioFormatsTests
 
     [Theory]
     [InlineData("song.flac")]
+    [InlineData("song.FLAC")]
+    [InlineData(@"C:\Music\song.Flac")]
+    public void IsSupported_FlacExtension_ReturnsTrue(string filePath)
+    {
+        Assert.True(SupportedAudioFormats.IsSupported(filePath));
+    }
+
+    [Theory]
     [InlineData("song.wav")]
     [InlineData("song")]
     [InlineData("song.txt")]
@@ -24,10 +32,11 @@ public class SupportedAudioFormatsTests
     }
 
     [Fact]
-    public void BuildFileDialogFilter_ContainsMp3Pattern()
+    public void BuildFileDialogFilter_ContainsMp3AndFlacPatterns()
     {
         var filter = SupportedAudioFormats.BuildFileDialogFilter();
 
         Assert.Contains("*.mp3", filter);
+        Assert.Contains("*.flac", filter);
     }
 }

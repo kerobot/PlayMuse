@@ -18,6 +18,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private readonly IPlaylistService playlistService;
     private readonly IFileDialogService fileDialogService;
     private readonly IDispatcherService dispatcherService;
+    private readonly IMetadataService metadataService;
 
     [ObservableProperty]
     private Track? currentTrack;
@@ -45,13 +46,15 @@ public partial class MainViewModel : ObservableObject, IDisposable
         IAudioDeviceService deviceService,
         IPlaylistService playlistService,
         IFileDialogService fileDialogService,
-        IDispatcherService dispatcherService)
+        IDispatcherService dispatcherService,
+        IMetadataService metadataService)
     {
         this.playbackService = playbackService;
         this.deviceService = deviceService;
         this.playlistService = playlistService;
         this.fileDialogService = fileDialogService;
         this.dispatcherService = dispatcherService;
+        this.metadataService = metadataService;
 
         this.playbackService.StateChanged += OnPlaybackStateChanged;
         this.playbackService.PlaybackCompleted += OnPlaybackCompleted;
@@ -89,13 +92,33 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 continue;
             }
 
-            playlistService.Add(new Track(filePath));
+            var track = new Track(filePath);
+            playlistService.Add(track);
             addedCount++;
+
+            _ = LoadMetadataAsync(track);
         }
 
         if (addedCount > 0)
         {
             StatusMessage = $"{addedCount} 件のファイルをプレイリストに追加しました。";
+        }
+    }
+
+    /// <summary>
+    /// タグ情報をバックグラウンドで取得し、TrackのObservableプロパティを介してUIへ反映する。
+    /// タグ読み取り失敗時はMetadataService側でファイル名ベース表示を維持するため、ここでは例外を握りつぶす。
+    /// </summary>
+    private async Task LoadMetadataAsync(Track track)
+    {
+        try
+        {
+            await metadataService.ApplyMetadataAsync(track);
+        }
+        catch (Exception ex)
+        {
+            dispatcherService.Invoke(() => StatusMessage = $"'{track.FileName}' のタグ読み取りに失敗しました。");
+            _ = ex;
         }
     }
 

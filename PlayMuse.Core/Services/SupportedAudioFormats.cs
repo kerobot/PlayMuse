@@ -2,14 +2,19 @@ namespace PlayMuse.Core.Services;
 
 /// <summary>
 /// アプリが対応する音楽ファイルの拡張子を一元管理する。
-/// Phase 2でFLACに対応する際は、ここに拡張子を追加するだけで済むようにする。
+/// 新しい形式に対応する際は、<see cref="FormatDefinitions"/> に追加するだけで済むようにする。
 /// </summary>
 public static class SupportedAudioFormats
 {
-    private static readonly HashSet<string> Extensions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".mp3",
-    };
+    private static readonly (string Extension, string DisplayName)[] FormatDefinitions =
+    [
+        (".mp3", "MP3"),
+        (".flac", "FLAC"),
+    ];
+
+    private static readonly HashSet<string> Extensions = new(
+        FormatDefinitions.Select(format => format.Extension),
+        StringComparer.OrdinalIgnoreCase);
 
     public static bool IsSupported(string filePath)
     {
@@ -19,10 +24,20 @@ public static class SupportedAudioFormats
 
     /// <summary>
     /// <see cref="Microsoft.Win32.OpenFileDialog.Filter"/> に指定できる形式の文字列を生成する。
+    /// 「対応する音楽ファイル」の統合フィルタに続けて、形式ごとの個別フィルタを列挙する。
     /// </summary>
     public static string BuildFileDialogFilter()
     {
-        var patterns = string.Join(';', Extensions.Select(ext => $"*{ext}"));
-        return $"対応する音楽ファイル ({patterns})|{patterns}";
+        var allPatterns = string.Join(';', FormatDefinitions.Select(format => $"*{format.Extension}"));
+
+        var filters = new List<string>
+        {
+            $"対応する音楽ファイル ({allPatterns})|{allPatterns}",
+        };
+
+        filters.AddRange(FormatDefinitions.Select(format =>
+            $"{format.DisplayName} ファイル (*{format.Extension})|*{format.Extension}"));
+
+        return string.Join('|', filters);
     }
 }

@@ -94,4 +94,25 @@ public class PlaylistServiceTests
         Assert.False(raised);
         Assert.Same(a, service.CurrentTrack);
     }
+
+    [Fact]
+    public void MoveNext_AcrossMixedFormats_TransitionsRegardlessOfExtension()
+    {
+        // mp3/flac混在プレイリストでもフォーマットを意識せずNext/Previousが機能することを確認する。
+        var service = new PlaylistService();
+        var mp3Track = CreateTrack("a.mp3");
+        var flacTrack = CreateTrack("b.flac");
+        service.Add(mp3Track);
+        service.Add(flacTrack);
+
+        var moved = service.MoveNext();
+
+        Assert.True(moved);
+        Assert.Same(flacTrack, service.CurrentTrack);
+
+        var movedBack = service.MovePrevious();
+
+        Assert.True(movedBack);
+        Assert.Same(mp3Track, service.CurrentTrack);
+    }
 }

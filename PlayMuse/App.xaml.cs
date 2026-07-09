@@ -50,6 +50,7 @@ public partial class App : Application
         services.AddSingleton<IPlaylistService, PlaylistService>();
         services.AddSingleton<IDispatcherService, WpfDispatcherService>();
         services.AddSingleton<IFileDialogService, FileDialogService>();
+        services.AddSingleton<IMetadataService, MetadataService>();
         services.AddSingleton<MainViewModel>();
         services.AddTransient<MainWindow>();
     }
