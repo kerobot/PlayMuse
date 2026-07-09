@@ -1,6 +1,8 @@
 ﻿using System.Windows;
 using Microsoft.Extensions.DependencyInjection;
+using PlayMuse.Core.Services;
 using PlayMuse.Core.ViewModels;
+using PlayMuse.Services;
 
 namespace PlayMuse;
 
@@ -15,12 +17,24 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        DispatcherUnhandledException += OnDispatcherUnhandledException;
+
         var services = new ServiceCollection();
         ConfigureServices(services);
         serviceProvider = services.BuildServiceProvider();
 
         var mainWindow = serviceProvider.GetRequiredService<MainWindow>();
         mainWindow.Show();
+    }
+
+    private void OnDispatcherUnhandledException(object sender, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e)
+    {
+        MessageBox.Show(
+            $"予期しないエラーが発生しました。\n\n{e.Exception.Message}",
+            "PlayMuse",
+            MessageBoxButton.OK,
+            MessageBoxImage.Error);
+        e.Handled = true;
     }
 
     protected override void OnExit(ExitEventArgs e)
@@ -31,6 +45,11 @@ public partial class App : Application
 
     private static void ConfigureServices(IServiceCollection services)
     {
+        services.AddSingleton<IAudioDeviceService, AudioDeviceService>();
+        services.AddSingleton<IAudioPlaybackService, AudioPlaybackService>();
+        services.AddSingleton<IPlaylistService, PlaylistService>();
+        services.AddSingleton<IDispatcherService, WpfDispatcherService>();
+        services.AddSingleton<IFileDialogService, FileDialogService>();
         services.AddSingleton<MainViewModel>();
         services.AddTransient<MainWindow>();
     }
