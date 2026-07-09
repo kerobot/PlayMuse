@@ -19,6 +19,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private readonly IFileDialogService fileDialogService;
     private readonly IDispatcherService dispatcherService;
     private readonly IMetadataService metadataService;
+    private readonly ISettingsService settingsService;
+    private bool isInitializing = true;
 
     [ObservableProperty]
     private Track? currentTrack;
@@ -39,6 +41,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private AudioDeviceInfo? selectedDevice;
 
     [ObservableProperty]
+    private bool isExclusiveMode;
+
+    [ObservableProperty]
     private string? statusMessage;
 
     public MainViewModel(
@@ -47,7 +52,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         IPlaylistService playlistService,
         IFileDialogService fileDialogService,
         IDispatcherService dispatcherService,
-        IMetadataService metadataService)
+        IMetadataService metadataService,
+        ISettingsService settingsService)
     {
         this.playbackService = playbackService;
         this.deviceService = deviceService;
@@ -55,6 +61,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         this.fileDialogService = fileDialogService;
         this.dispatcherService = dispatcherService;
         this.metadataService = metadataService;
+        this.settingsService = settingsService;
 
         this.playbackService.StateChanged += OnPlaybackStateChanged;
         this.playbackService.PlaybackCompleted += OnPlaybackCompleted;
@@ -63,6 +70,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         this.playlistService.Tracks.CollectionChanged += OnTracksCollectionChanged;
 
         LoadDevices();
+        ApplyPersistedSettings();
+        isInitializing = false;
     }
 
     public ObservableCollection<Track> Tracks => playlistService.Tracks;
@@ -182,7 +191,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
         playbackService.Play();
     }
 
-    partial void OnVolumeChanged(double value) => playbackService.Volume = (float)value;
+    partial void OnVolumeChanged(double value)
+    {
+        playbackService.Volume = (float)value;
+        SaveSettingsIfReady();
+    }
 
     partial void OnSelectedDeviceChanged(AudioDeviceInfo? value)
     {
@@ -190,6 +203,14 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             playbackService.SetOutputDevice(value);
         }
+
+        SaveSettingsIfReady();
+    }
+
+    partial void OnIsExclusiveModeChanged(bool value)
+    {
+        playbackService.SetShareMode(value ? AudioShareMode.Exclusive : AudioShareMode.Shared);
+        SaveSettingsIfReady();
     }
 
     partial void OnPositionChanged(TimeSpan value)
@@ -293,6 +314,45 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
 
         SelectedDevice = Devices.FirstOrDefault(d => d.IsDefault) ?? Devices.FirstOrDefault();
+    }
+
+    /// <summary>
+    /// 永続化済みの設定（出力デバイス/共有モード/音量）を読み込み、各サービスへ適用する。
+    /// 初期化中はプロパティ変更通知による設定への書き戻し（無限ループや不要な即時保存）を避けるため、
+    /// isInitializingフラグで<see cref="SaveSettingsIfReady"/>をガードする。
+    /// </summary>
+    private void ApplyPersistedSettings()
+    {
+        var settings = settingsService.Load();
+
+        Volume = Math.Clamp(settings.Volume, 0f, 1f);
+        IsExclusiveMode = settings.ShareMode == AudioShareMode.Exclusive;
+
+        if (settings.OutputDeviceId is not null)
+        {
+            var savedDevice = Devices.FirstOrDefault(d => d.Id == settings.OutputDeviceId);
+            if (savedDevice is not null)
+            {
+                SelectedDevice = savedDevice;
+            }
+        }
+
+        playbackService.SetShareMode(IsExclusiveMode ? AudioShareMode.Exclusive : AudioShareMode.Shared);
+    }
+
+    private void SaveSettingsIfReady()
+    {
+        if (isInitializing)
+        {
+            return;
+        }
+
+        settingsService.Save(new AppSettings
+        {
+            ShareMode = IsExclusiveMode ? AudioShareMode.Exclusive : AudioShareMode.Shared,
+            OutputDeviceId = SelectedDevice?.Id,
+            Volume = (float)Volume,
+        });
     }
 
     public void Dispose()

@@ -20,7 +20,7 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- ツールバー: ファイルを開く / 出力デバイス選択 -->
+        <!-- ツールバー: ファイルを開く / 出力デバイス選択 / 排他モード切替 -->
         <DockPanel Grid.Row="0" Margin="0,0,0,8" LastChildFill="False">
             <Button DockPanel.Dock="Left" Content="開く" Padding="12,4"
                     Command="{Binding OpenFilesCommand}"/>
@@ -28,6 +28,8 @@
                       ItemsSource="{Binding Devices}"
                       DisplayMemberPath="Name"
                       SelectedItem="{Binding SelectedDevice}"/>
+            <CheckBox DockPanel.Dock="Right" Content="排他モード" VerticalAlignment="Center" Margin="0,0,8,0"
+                      IsChecked="{Binding IsExclusiveMode}"/>
         </DockPanel>
 
         <!-- プレイリスト -->
