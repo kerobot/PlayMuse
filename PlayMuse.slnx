@@ -1,3 +1,5 @@
 <Solution>
+  <Project Path="PlayMuse.Core/PlayMuse.Core.csproj" />
+  <Project Path="PlayMuse.Tests/PlayMuse.Tests.csproj" />
   <Project Path="PlayMuse/PlayMuse.csproj" />
 </Solution>
