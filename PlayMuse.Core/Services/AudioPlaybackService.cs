@@ -399,6 +399,11 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
     {
         // このハンドラーは現在アクティブなoutputにのみ購読しているため、
         // 呼び出された時点でNAudio側の自然終了（トラック終端 or デバイスエラー）とみなせる。
+
+        // ユーザーが明示的に停止ボタンを押した場合、Stateは既にStoppedになっている
+        // その場合はPlaybackCompletedイベントを発火させない（次の曲に進まないようにする）
+        var wasPlaying = State == PlaybackState.Playing || State == PlaybackState.Paused;
+
         State = PlaybackState.Stopped;
 
         if (e.Exception is not null)
@@ -407,7 +412,11 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
             return;
         }
 
-        PlaybackCompleted?.Invoke(this, EventArgs.Empty);
+        // 再生中だった場合のみ、曲の自然終了として次の曲へ進む
+        if (wasPlaying)
+        {
+            PlaybackCompleted?.Invoke(this, EventArgs.Empty);
+        }
     }
 
     private void RaiseError(string message, Exception? exception = null)

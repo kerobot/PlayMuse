@@ -307,6 +307,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         dispatcherService.Invoke(() =>
         {
+            // 停止状態の場合は次の曲に進まない（ユーザーが停止ボタンを押した場合）
+            if (PlaybackStatus == PlaybackState.Stopped)
+            {
+                return;
+            }
+
             if (playlistService.MoveNext())
             {
                 playbackService.Play();
