@@ -266,12 +266,12 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
             var deviceNativeFormat = currentMMDevice!.AudioClient.MixFormat;
             var fileFormat = reader.WaveFormat;
 
-            System.Diagnostics.Debug.WriteLine($"[InitializeOutputCore] 排他モード: ファイル={fileFormat.SampleRate}Hz, デバイス={deviceNativeFormat.SampleRate}Hz");
+            System.Diagnostics.Debug.WriteLine($"[InitializeOutputCore] 排他モード: ファイル={fileFormat.SampleRate}Hz {fileFormat.Encoding}, デバイス={deviceNativeFormat.SampleRate}Hz {deviceNativeFormat.Encoding}");
 
             // サンプルレート、チャンネル数、またはエンコーディングが異なる場合、リサンプリングを実行
             if (fileFormat.SampleRate != deviceNativeFormat.SampleRate ||
                 fileFormat.Channels != deviceNativeFormat.Channels ||
-                fileFormat.Encoding != deviceNativeFormat.Encoding)
+                !AreFormatsCompatible(fileFormat, deviceNativeFormat))
             {
                 System.Diagnostics.Debug.WriteLine($"[InitializeOutputCore] リサンプリング実行: {fileFormat.SampleRate}Hz -> {deviceNativeFormat.SampleRate}Hz");
 
@@ -286,7 +286,7 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
             }
             else
             {
-                System.Diagnostics.Debug.WriteLine($"[InitializeOutputCore] リサンプリング不要");
+                System.Diagnostics.Debug.WriteLine($"[InitializeOutputCore] リサンプリング不要: ビットパーフェクト");
                 OutputFormat = fileFormat;
             }
         }
@@ -303,6 +303,49 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
         ActualShareMode = shareModeNative == AudioClientShareMode.Exclusive
             ? AudioShareMode.Exclusive
             : AudioShareMode.Shared;
+    }
+
+    /// <summary>
+    /// 2つのWaveFormatが互換性があるか（ビットパーフェクト再生可能か）を判定する。
+    /// ExtensibleフォーマットのSubFormatも考慮して比較する。
+    /// </summary>
+    private static bool AreFormatsCompatible(WaveFormat sourceFormat, WaveFormat deviceFormat)
+    {
+        // 両方とも同じEncodingの場合は互換性あり
+        if (sourceFormat.Encoding == deviceFormat.Encoding)
+        {
+            return true;
+        }
+
+        // 一方がIeeeFloat、もう一方がExtensibleの場合、ExtensibleのSubFormatを確認
+        var sourceExt = sourceFormat as WaveFormatExtensible;
+        var deviceExt = deviceFormat as WaveFormatExtensible;
+
+        // IEEE Float形式のSubFormat GUID: 00000003-0000-0010-8000-00aa00389b71
+        var ieeeFloatGuid = new Guid("00000003-0000-0010-8000-00aa00389b71");
+
+        // ソースがIeeeFloat、デバイスがExtensibleの場合
+        if (sourceFormat.Encoding == WaveFormatEncoding.IeeeFloat && deviceExt != null)
+        {
+            // デバイスのSubFormatがIeeeFloatなら互換性あり
+            return deviceExt.SubFormat == ieeeFloatGuid;
+        }
+
+        // デバイスがIeeeFloat、ソースがExtensibleの場合
+        if (deviceFormat.Encoding == WaveFormatEncoding.IeeeFloat && sourceExt != null)
+        {
+            // ソースのSubFormatがIeeeFloatなら互換性あり
+            return sourceExt.SubFormat == ieeeFloatGuid;
+        }
+
+        // 両方がExtensibleの場合、SubFormatを比較
+        if (sourceExt != null && deviceExt != null)
+        {
+            return sourceExt.SubFormat == deviceExt.SubFormat;
+        }
+
+        // その他の場合は互換性なし
+        return false;
     }
 
     /// <summary>
