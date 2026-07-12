@@ -158,6 +158,8 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
 
         // 一時停止時は位置を保持したまま音声出力を完全に停止する
         // NAudioのPause()は一部環境で正しく動作しないため、Stop()を使用
+        // ただし、PlaybackStoppedイベントで次の曲に進まないようにフラグを設定
+        isUserStopped = true;
         output.Stop();
         State = PlaybackState.Paused;
     }
@@ -405,6 +407,9 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
         // このハンドラーは現在アクティブなoutputにのみ購読しているため、
         // 呼び出された時点でNAudio側の自然終了（トラック終端 or デバイスエラー）とみなせる。
 
+        // 状態を記録してから変更（Playing状態だったかを判定するため）
+        var wasPlaying = State == PlaybackState.Playing;
+
         State = PlaybackState.Stopped;
 
         if (e.Exception is not null)
@@ -413,9 +418,10 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
             return;
         }
 
-        // ユーザーが明示的に停止ボタンを押した場合は、次の曲に進まない
-        // 曲が自然に終了した場合（isUserStopped == false）は、次の曲に進む
-        if (!isUserStopped)
+        // 次の曲に進むのは以下の条件を両方満たす場合のみ：
+        // 1. 再生中だった（Playing状態）
+        // 2. ユーザーが停止/一時停止ボタンを押していない
+        if (wasPlaying && !isUserStopped)
         {
             PlaybackCompleted?.Invoke(this, EventArgs.Empty);
         }
