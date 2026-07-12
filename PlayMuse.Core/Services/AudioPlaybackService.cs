@@ -31,6 +31,7 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
     private MediaFoundationResampler? resampler;
     private PlaybackState state = PlaybackState.Stopped;
     private float desiredVolume = 1.0f;
+    private bool isUserStopped;
 
     public PlaybackState State
     {
@@ -137,6 +138,7 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
                 InitializeOutput();
             }
 
+            isUserStopped = false;
             output!.Play();
             State = PlaybackState.Playing;
         }
@@ -162,6 +164,9 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
 
     public void Stop()
     {
+        // ユーザーが明示的に停止ボタンを押したことを記録
+        isUserStopped = true;
+
         // 停止時は出力リソースを完全にクリーンアップし、位置をリセット
         TeardownOutput();
 
@@ -400,10 +405,6 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
         // このハンドラーは現在アクティブなoutputにのみ購読しているため、
         // 呼び出された時点でNAudio側の自然終了（トラック終端 or デバイスエラー）とみなせる。
 
-        // ユーザーが明示的に停止ボタンを押した場合、Stateは既にStoppedになっている
-        // その場合はPlaybackCompletedイベントを発火させない（次の曲に進まないようにする）
-        var wasPlaying = State == PlaybackState.Playing || State == PlaybackState.Paused;
-
         State = PlaybackState.Stopped;
 
         if (e.Exception is not null)
@@ -412,8 +413,9 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
             return;
         }
 
-        // 再生中だった場合のみ、曲の自然終了として次の曲へ進む
-        if (wasPlaying)
+        // ユーザーが明示的に停止ボタンを押した場合は、次の曲に進まない
+        // 曲が自然に終了した場合（isUserStopped == false）は、次の曲に進む
+        if (!isUserStopped)
         {
             PlaybackCompleted?.Invoke(this, EventArgs.Empty);
         }
