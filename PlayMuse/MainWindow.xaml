@@ -38,7 +38,7 @@
         <!-- プレイリスト -->
         <ListBox Grid.Row="1"
                  ItemsSource="{Binding Tracks}"
-                 SelectedItem="{Binding CurrentTrack, Mode=OneWay}"
+                 SelectedItem="{Binding SelectedTrack}"
                  BorderThickness="1">
             <ListBox.ItemContainerStyle>
                 <Style TargetType="ListBoxItem">
@@ -105,19 +105,15 @@
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="80"/>
             </Grid.ColumnDefinitions>
             <Button Grid.Column="0" Content="前へ" Padding="10,4" Margin="0,0,4,0" Command="{Binding PreviousCommand}"/>
-            <Button Grid.Column="1" Content="再生" Padding="10,4" Margin="0,0,4,0" Command="{Binding PlayCommand}"/>
-            <Button Grid.Column="2" Content="一時停止" Padding="10,4" Margin="0,0,4,0" Command="{Binding PauseCommand}"/>
-            <Button Grid.Column="3" Content="停止" Padding="10,4" Margin="0,0,4,0" Command="{Binding StopCommand}"/>
-            <Button Grid.Column="4" Content="次へ" Padding="10,4" Command="{Binding NextCommand}"/>
-            <TextBlock Grid.Column="6" Text="音量" VerticalAlignment="Center" Margin="12,0,4,0"/>
-            <Slider Grid.Column="7" VerticalAlignment="Center" Minimum="0" Maximum="1"
+            <Button Grid.Column="1" Content="{Binding PlayPauseButtonText}" Padding="10,4" Margin="0,0,4,0" Command="{Binding PlayPauseCommand}"/>
+            <Button Grid.Column="2" Content="次へ" Padding="10,4" Command="{Binding NextCommand}"/>
+            <TextBlock Grid.Column="4" Text="音量" VerticalAlignment="Center" Margin="12,0,4,0"/>
+            <Slider Grid.Column="5" VerticalAlignment="Center" Minimum="0" Maximum="1"
                     Value="{Binding Volume}"/>
         </Grid>
 

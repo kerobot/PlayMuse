@@ -154,12 +154,15 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
             return;
         }
 
-        output.Pause();
+        // 一時停止時は位置を保持したまま音声出力を完全に停止する
+        // NAudioのPause()は一部環境で正しく動作しないため、Stop()を使用
+        output.Stop();
         State = PlaybackState.Paused;
     }
 
     public void Stop()
     {
+        // 停止時は出力リソースを完全にクリーンアップし、位置をリセット
         TeardownOutput();
 
         if (reader is not null)

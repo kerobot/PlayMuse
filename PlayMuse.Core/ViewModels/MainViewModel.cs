@@ -26,6 +26,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private Track? currentTrack;
 
     [ObservableProperty]
+    private Track? selectedTrack;
+
+    [ObservableProperty]
     private PlaybackState playbackStatus = PlaybackState.Stopped;
 
     [ObservableProperty]
@@ -132,6 +135,43 @@ public partial class MainViewModel : ObservableObject, IDisposable
             dispatcherService.Invoke(() => StatusMessage = $"'{track.FileName}' のタグ読み取りに失敗しました。");
             _ = ex;
         }
+    }
+
+    /// <summary>
+    /// 再生/一時停止を切り替えるトグルコマンド。
+    /// 停止中または一時停止中→再生、再生中→一時停止。
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanPlayPause))]
+    private void PlayPause()
+    {
+        if (PlaybackStatus == PlaybackState.Playing)
+        {
+            playbackService.Pause();
+        }
+        else
+        {
+            // CurrentTrackがnullだがSelectedTrackがある場合、そのトラックをCurrentに設定
+            if (CurrentTrack is null && SelectedTrack is not null)
+            {
+                var index = Tracks.IndexOf(SelectedTrack);
+                if (index >= 0)
+                {
+                    playlistService.TrySetCurrentIndex(index);
+                }
+            }
+
+            playbackService.Play();
+        }
+    }
+
+    private bool CanPlayPause() => CurrentTrack is not null || SelectedTrack is not null;
+
+    [ObservableProperty]
+    private string playPauseButtonText = "再生";
+
+    partial void OnSelectedTrackChanged(Track? value)
+    {
+        PlayPauseCommand.NotifyCanExecuteChanged();
     }
 
     [RelayCommand(CanExecute = nameof(CanPlay))]
@@ -246,9 +286,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             PlaybackStatus = e;
             UpdateAudioInfo();
+            UpdatePlayPauseButton();
             PlayCommand.NotifyCanExecuteChanged();
             PauseCommand.NotifyCanExecuteChanged();
             StopCommand.NotifyCanExecuteChanged();
+            PlayPauseCommand.NotifyCanExecuteChanged();
         });
     }
 
@@ -408,6 +450,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
         lines.Add($"💎 {bitPerfectText}");
 
         AudioInfoText = string.Join("\n", lines);
+    }
+
+    private void UpdatePlayPauseButton()
+    {
+        PlayPauseButtonText = PlaybackStatus == PlaybackState.Playing ? "停止" : "再生";
     }
 
     public void Dispose()
