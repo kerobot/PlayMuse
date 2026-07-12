@@ -15,6 +15,8 @@ public sealed class Playlist
         ? Tracks[CurrentIndex]
         : null;
 
+    public bool IsLoopEnabled { get; set; }
+
     public void Add(Track track)
     {
         ArgumentNullException.ThrowIfNull(track);
@@ -62,8 +64,18 @@ public sealed class Playlist
 
     public bool MoveNext()
     {
-        if (CurrentIndex < 0 || CurrentIndex >= Tracks.Count - 1)
+        if (CurrentIndex < 0 || Tracks.Count == 0)
         {
+            return false;
+        }
+
+        if (CurrentIndex >= Tracks.Count - 1)
+        {
+            if (IsLoopEnabled && Tracks.Count > 0)
+            {
+                CurrentIndex = 0;
+                return true;
+            }
             return false;
         }
 
@@ -73,8 +85,18 @@ public sealed class Playlist
 
     public bool MovePrevious()
     {
+        if (CurrentIndex < 0 || Tracks.Count == 0)
+        {
+            return false;
+        }
+
         if (CurrentIndex <= 0)
         {
+            if (IsLoopEnabled && Tracks.Count > 0)
+            {
+                CurrentIndex = Tracks.Count - 1;
+                return true;
+            }
             return false;
         }
 

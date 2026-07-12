@@ -18,6 +18,12 @@ public sealed class PlaylistService : IPlaylistService
 
     public event EventHandler? CurrentTrackChanged;
 
+    public bool IsLoopEnabled
+    {
+        get => playlist.IsLoopEnabled;
+        set => playlist.IsLoopEnabled = value;
+    }
+
     public void Add(Track track)
     {
         ArgumentNullException.ThrowIfNull(track);

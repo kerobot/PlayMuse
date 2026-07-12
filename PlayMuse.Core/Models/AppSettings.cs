@@ -7,4 +7,6 @@ public sealed class AppSettings
     public string? OutputDeviceId { get; set; }
 
     public float Volume { get; set; } = 1.0f;
+
+    public bool IsLoopEnabled { get; set; }
 }

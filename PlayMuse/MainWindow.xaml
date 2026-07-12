@@ -71,6 +71,7 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
             <TextBlock Grid.Column="0" Text="♪" FontSize="16" VerticalAlignment="Center" Margin="0,0,8,0" Opacity="0.7"/>
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
@@ -78,6 +79,15 @@
                 <TextBlock Text=" - " Margin="4,0" Opacity="0.7"/>
                 <TextBlock Text="{Binding CurrentTrack.Title, Mode=OneWay}" TextTrimming="CharacterEllipsis"/>
             </StackPanel>
+            <ToggleButton Grid.Column="2" 
+                          IsChecked="{Binding IsLoopEnabled}"
+                          Padding="8,2"
+                          Margin="8,0,0,0"
+                          ToolTip="ループ再生">
+                <TextBlock>
+                    <Run Text="🔁"/>
+                </TextBlock>
+            </ToggleButton>
         </Grid>
 
         <!-- シーク -->

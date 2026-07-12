@@ -52,6 +52,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private string? audioInfoText;
 
+    [ObservableProperty]
+    private bool isLoopEnabled;
+
     public MainViewModel(
         IAudioPlaybackService playbackService,
         IAudioDeviceService deviceService,
@@ -258,6 +261,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
         SaveSettingsIfReady();
     }
 
+    partial void OnIsLoopEnabledChanged(bool value)
+    {
+        playlistService.IsLoopEnabled = value;
+        SaveSettingsIfReady();
+    }
+
     partial void OnPositionChanged(TimeSpan value)
     {
         if (IsSeeking)
@@ -376,6 +385,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         Volume = Math.Clamp(settings.Volume, 0f, 1f);
         IsExclusiveMode = settings.ShareMode == AudioShareMode.Exclusive;
+        IsLoopEnabled = settings.IsLoopEnabled;
+        playlistService.IsLoopEnabled = settings.IsLoopEnabled;
 
         if (settings.OutputDeviceId is not null)
         {
@@ -401,6 +412,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             ShareMode = IsExclusiveMode ? AudioShareMode.Exclusive : AudioShareMode.Shared,
             OutputDeviceId = SelectedDevice?.Id,
             Volume = (float)Volume,
+            IsLoopEnabled = IsLoopEnabled,
         });
     }
 
