@@ -6,15 +6,18 @@
         xmlns:local="clr-namespace:PlayMuse"
         xmlns:converters="clr-namespace:PlayMuse.Converters"
         mc:Ignorable="d"
-        Title="PlayMuse" Height="640" Width="420" MinHeight="480" MinWidth="360">
+        Title="PlayMuse" Height="640" Width="440" MinHeight="480" MinWidth="440">
     <Window.Resources>
         <converters:TimeSpanToSecondsConverter x:Key="TimeSpanToSecondsConverter"/>
         <converters:TimeSpanToStringConverter x:Key="TimeSpanToStringConverter"/>
+        <converters:NullToVisibilityConverter x:Key="NullToVisibilityConverter"/>
     </Window.Resources>
     <Grid Margin="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -52,8 +55,33 @@
             </ListBox.ItemTemplate>
         </ListBox>
 
+        <!-- オーディオ情報パネル -->
+        <Border Grid.Row="2" Margin="0,8,0,0" Padding="8" 
+                Background="#F5F5F5" BorderBrush="#CCCCCC" BorderThickness="1"
+                Visibility="{Binding AudioInfoText, Converter={StaticResource NullToVisibilityConverter}}">
+            <TextBlock Text="{Binding AudioInfoText}" 
+                       FontFamily="Consolas, Courier New" 
+                       FontSize="11" 
+                       LineHeight="18"
+                       TextWrapping="Wrap"/>
+        </Border>
+
+        <!-- 再生中のトラック情報 -->
+        <Grid Grid.Row="3" Margin="0,8,0,0" Visibility="{Binding CurrentTrack, Converter={StaticResource NullToVisibilityConverter}}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="♪" FontSize="16" VerticalAlignment="Center" Margin="0,0,8,0" Opacity="0.7"/>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="{Binding CurrentTrack.Artist, Mode=OneWay}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                <TextBlock Text=" - " Margin="4,0" Opacity="0.7"/>
+                <TextBlock Text="{Binding CurrentTrack.Title, Mode=OneWay}" TextTrimming="CharacterEllipsis"/>
+            </StackPanel>
+        </Grid>
+
         <!-- シーク -->
-        <Grid Grid.Row="2" Margin="0,8,0,0">
+        <Grid Grid.Row="4" Margin="0,8,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
@@ -72,7 +100,7 @@
         </Grid>
 
         <!-- 再生系トランスポート + 音量 -->
-        <Grid Grid.Row="3" Margin="0,8,0,0">
+        <Grid Grid.Row="5" Margin="0,8,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
@@ -94,7 +122,7 @@
         </Grid>
 
         <!-- ステータス -->
-        <TextBlock Grid.Row="4" Margin="0,8,0,0" Opacity="0.8" TextTrimming="CharacterEllipsis"
+        <TextBlock Grid.Row="6" Margin="0,8,0,0" Opacity="0.8" TextTrimming="CharacterEllipsis"
                    Text="{Binding StatusMessage}"/>
     </Grid>
 </Window>

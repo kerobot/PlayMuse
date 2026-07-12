@@ -1,4 +1,6 @@
+using NAudio.Wave;
 using PlayMuse.Core.Models;
+using PlaybackState = PlayMuse.Core.Models.PlaybackState;
 
 namespace PlayMuse.Core.Services;
 
@@ -28,6 +30,22 @@ public interface IAudioPlaybackService : IDisposable
     /// または他アプリの排他使用中等で初期化に失敗した場合は<see cref="AudioShareMode.Shared"/>にフォールバックされる。
     /// </summary>
     AudioShareMode ActualShareMode { get; }
+
+    /// <summary>
+    /// ソースファイルのオーディオフォーマット（デコード後）。
+    /// </summary>
+    WaveFormat? SourceFormat { get; }
+
+    /// <summary>
+    /// デバイスに出力されるオーディオフォーマット。
+    /// リサンプリングが行われている場合は変換後のフォーマット、行われていない場合はSourceFormatと同じ。
+    /// </summary>
+    WaveFormat? OutputFormat { get; }
+
+    /// <summary>
+    /// リサンプリングが実行されているかどうか。
+    /// </summary>
+    bool IsResampling { get; }
 
     event EventHandler<PlaybackState>? StateChanged;
 

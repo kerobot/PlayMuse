@@ -28,6 +28,7 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
     private AudioFileReader? reader;
     private WasapiOut? output;
     private MMDevice? currentMMDevice;
+    private MediaFoundationResampler? resampler;
     private PlaybackState state = PlaybackState.Stopped;
     private float desiredVolume = 1.0f;
 
@@ -82,6 +83,12 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
     public AudioShareMode ShareMode { get; private set; } = AudioShareMode.Shared;
 
     public AudioShareMode ActualShareMode { get; private set; } = AudioShareMode.Shared;
+
+    public WaveFormat? SourceFormat => reader?.WaveFormat;
+
+    public WaveFormat? OutputFormat { get; private set; }
+
+    public bool IsResampling { get; private set; }
 
     public event EventHandler<PlaybackState>? StateChanged;
 
@@ -232,21 +239,13 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
             ? AudioClientShareMode.Exclusive
             : AudioClientShareMode.Shared;
 
-        if (requestedShareMode == AudioClientShareMode.Exclusive
-            && !IsExclusiveFormatSupported(currentMMDevice, reader!.WaveFormat))
-        {
-            requestedShareMode = AudioClientShareMode.Shared;
-            RaiseError("現在の出力デバイスはこのファイルの形式(サンプルレート/ビット深度)での排他モード再生に対応していないため、共有モードで再生します。");
-        }
-
         try
         {
             InitializeOutputCore(requestedShareMode);
         }
         catch (Exception ex) when (requestedShareMode == AudioClientShareMode.Exclusive)
         {
-            // 事前検証を通過していても、他アプリが既にデバイスを排他使用中である等の動的要因で
-            // 初期化に失敗することがある。この場合は共有モードへフォールバックして再試行する。
+            // 排他モードでの初期化に失敗した場合、共有モードへフォールバックして再試行する。
             RaiseError(BuildExclusiveModeFailureMessage(ex), ex);
             InitializeOutputCore(AudioClientShareMode.Shared);
         }
@@ -254,29 +253,53 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
 
     private void InitializeOutputCore(AudioClientShareMode shareModeNative)
     {
+        // 排他モードの場合、デバイスのネイティブフォーマットにリサンプリングが必要か判定
+        IWaveProvider waveProvider = reader!;
+        IsResampling = false;
+        OutputFormat = null;
+
+        if (shareModeNative == AudioClientShareMode.Exclusive)
+        {
+            var deviceNativeFormat = currentMMDevice!.AudioClient.MixFormat;
+            var fileFormat = reader.WaveFormat;
+
+            System.Diagnostics.Debug.WriteLine($"[InitializeOutputCore] 排他モード: ファイル={fileFormat.SampleRate}Hz, デバイス={deviceNativeFormat.SampleRate}Hz");
+
+            // サンプルレート、チャンネル数、またはエンコーディングが異なる場合、リサンプリングを実行
+            if (fileFormat.SampleRate != deviceNativeFormat.SampleRate ||
+                fileFormat.Channels != deviceNativeFormat.Channels ||
+                fileFormat.Encoding != deviceNativeFormat.Encoding)
+            {
+                System.Diagnostics.Debug.WriteLine($"[InitializeOutputCore] リサンプリング実行: {fileFormat.SampleRate}Hz -> {deviceNativeFormat.SampleRate}Hz");
+
+                // 既存のリサンプラーを破棄
+                resampler?.Dispose();
+
+                // MediaFoundationResamplerでデバイスのネイティブフォーマットに変換
+                resampler = new MediaFoundationResampler(reader, deviceNativeFormat);
+                waveProvider = resampler;
+                IsResampling = true;
+                OutputFormat = deviceNativeFormat;
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine($"[InitializeOutputCore] リサンプリング不要");
+                OutputFormat = fileFormat;
+            }
+        }
+        else
+        {
+            // 共有モードの場合、Windowsが自動的にミックスするため出力フォーマットは不明
+            OutputFormat = currentMMDevice?.AudioClient.MixFormat;
+        }
+
         var newOutput = new WasapiOut(currentMMDevice, shareModeNative, true, LatencyMilliseconds);
         newOutput.PlaybackStopped += OnPlaybackStopped;
-        newOutput.Init(reader);
+        newOutput.Init(waveProvider);
         output = newOutput;
         ActualShareMode = shareModeNative == AudioClientShareMode.Exclusive
             ? AudioShareMode.Exclusive
             : AudioShareMode.Shared;
-    }
-
-    /// <summary>
-    /// 対象デバイスが指定フォーマットでの排他モード再生に対応しているかを事前検証する。
-    /// 検証自体が例外を投げた場合は「非対応」として扱い、安全側（共有モード）にフォールバックする。
-    /// </summary>
-    private static bool IsExclusiveFormatSupported(MMDevice device, WaveFormat format)
-    {
-        try
-        {
-            return device.AudioClient.IsFormatSupported(AudioClientShareMode.Exclusive, format);
-        }
-        catch (Exception)
-        {
-            return false;
-        }
     }
 
     /// <summary>
@@ -318,6 +341,9 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
             output.Dispose();
             output = null;
         }
+
+        resampler?.Dispose();
+        resampler = null;
 
         currentMMDevice?.Dispose();
         currentMMDevice = null;

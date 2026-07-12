@@ -46,6 +46,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private string? statusMessage;
 
+    [ObservableProperty]
+    private string? audioInfoText;
+
     public MainViewModel(
         IAudioPlaybackService playbackService,
         IAudioDeviceService deviceService,
@@ -202,6 +205,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (value is not null)
         {
             playbackService.SetOutputDevice(value);
+            UpdateAudioInfo();
         }
 
         SaveSettingsIfReady();
@@ -210,6 +214,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     partial void OnIsExclusiveModeChanged(bool value)
     {
         playbackService.SetShareMode(value ? AudioShareMode.Exclusive : AudioShareMode.Shared);
+        UpdateAudioInfo();
         SaveSettingsIfReady();
     }
 
@@ -240,6 +245,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         dispatcherService.Invoke(() =>
         {
             PlaybackStatus = e;
+            UpdateAudioInfo();
             PlayCommand.NotifyCanExecuteChanged();
             PauseCommand.NotifyCanExecuteChanged();
             StopCommand.NotifyCanExecuteChanged();
@@ -275,6 +281,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             }
 
             Duration = CurrentTrack?.Duration ?? TimeSpan.Zero;
+            UpdateAudioInfo();
 
             PlayCommand.NotifyCanExecuteChanged();
             NextCommand.NotifyCanExecuteChanged();
@@ -353,6 +360,54 @@ public partial class MainViewModel : ObservableObject, IDisposable
             OutputDeviceId = SelectedDevice?.Id,
             Volume = (float)Volume,
         });
+    }
+
+    private void UpdateAudioInfo()
+    {
+        if (CurrentTrack is null || playbackService.SourceFormat is null)
+        {
+            AudioInfoText = null;
+            return;
+        }
+
+        var sourceFormat = playbackService.SourceFormat;
+        var outputFormat = playbackService.OutputFormat;
+        var actualShareMode = playbackService.ActualShareMode;
+        var isResampling = playbackService.IsResampling;
+        var outputDevice = playbackService.OutputDevice;
+
+        var lines = new List<string>();
+
+        // ファイル情報
+        lines.Add($"📁 ソース: {sourceFormat.SampleRate / 1000.0:0.#} kHz / {sourceFormat.BitsPerSample} bit / {sourceFormat.Channels} ch / {sourceFormat.Encoding}");
+
+        // 出力情報
+        if (outputFormat is not null)
+        {
+            lines.Add($"🔊 出力: {outputFormat.SampleRate / 1000.0:0.#} kHz / {outputFormat.BitsPerSample} bit / {outputFormat.Channels} ch / {outputFormat.Encoding}");
+        }
+
+        // リサンプリング状態
+        if (isResampling)
+        {
+            lines.Add($"⚙️ リサンプリング: 有効 ({sourceFormat.SampleRate / 1000.0:0.#} kHz → {outputFormat?.SampleRate / 1000.0:0.#} kHz)");
+        }
+        else
+        {
+            lines.Add("⚙️ リサンプリング: なし");
+        }
+
+        // デバイスと共有モード
+        var deviceName = outputDevice?.Name ?? "デフォルトデバイス";
+        var shareModeText = actualShareMode == AudioShareMode.Exclusive ? "排他" : "共有";
+        lines.Add($"🎧 デバイス: {deviceName} ({shareModeText}モード)");
+
+        // ビットパーフェクト判定
+        var isBitPerfect = !isResampling && actualShareMode == AudioShareMode.Exclusive;
+        var bitPerfectText = isBitPerfect ? "✓ ビットパーフェクト再生" : "△ 非ビットパーフェクト";
+        lines.Add($"💎 {bitPerfectText}");
+
+        AudioInfoText = string.Join("\n", lines);
     }
 
     public void Dispose()
