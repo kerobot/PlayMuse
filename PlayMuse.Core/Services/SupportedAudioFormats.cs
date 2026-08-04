@@ -10,6 +10,8 @@ public static class SupportedAudioFormats
     [
         (".mp3", "MP3"),
         (".flac", "FLAC"),
+        (".wav", "WAV"),
+        (".aac", "AAC"),
     ];
 
     private static readonly HashSet<string> Extensions = new(

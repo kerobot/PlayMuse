@@ -24,7 +24,24 @@ public class SupportedAudioFormatsTests
 
     [Theory]
     [InlineData("song.wav")]
-    [InlineData("song")]
+    [InlineData("song.WAV")]
+    [InlineData(@"C:\Music\song.Wav")]
+    public void IsSupported_WavExtension_ReturnsTrue(string filePath)
+    {
+        Assert.True(SupportedAudioFormats.IsSupported(filePath));
+    }
+
+    [Theory]
+    [InlineData("song.aac")]
+    [InlineData("song.AAC")]
+    [InlineData(@"C:\Music\song.Aac")]
+    public void IsSupported_AacExtension_ReturnsTrue(string filePath)
+    {
+        Assert.True(SupportedAudioFormats.IsSupported(filePath));
+    }
+
+    [Theory]
+    [InlineData("song.ogg")]
     [InlineData("song.txt")]
     public void IsSupported_UnsupportedExtension_ReturnsFalse(string filePath)
     {
@@ -32,11 +49,13 @@ public class SupportedAudioFormatsTests
     }
 
     [Fact]
-    public void BuildFileDialogFilter_ContainsMp3AndFlacPatterns()
+    public void BuildFileDialogFilter_ContainsMp3FlacWavAndAacPatterns()
     {
         var filter = SupportedAudioFormats.BuildFileDialogFilter();
 
         Assert.Contains("*.mp3", filter);
         Assert.Contains("*.flac", filter);
+        Assert.Contains("*.wav", filter);
+        Assert.Contains("*.aac", filter);
     }
 }

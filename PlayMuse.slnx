@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/ソリューション項目/">
+    <File Path=".copilot/plans/plan-playmuse-mvpmp3flacwasapi.md" />
+  </Folder>
   <Project Path="PlayMuse.Core/PlayMuse.Core.csproj" />
   <Project Path="PlayMuse.Tests/PlayMuse.Tests.csproj" />
   <Project Path="PlayMuse/PlayMuse.csproj" />
