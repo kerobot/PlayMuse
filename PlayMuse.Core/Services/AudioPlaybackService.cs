@@ -72,10 +72,7 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
         set
         {
             desiredVolume = Math.Clamp(value, 0f, 1f);
-            if (reader is not null)
-            {
-                reader.Volume = desiredVolume;
-            }
+            reader?.Volume = desiredVolume;
         }
     }
 
@@ -172,10 +169,7 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
         // 停止時は出力リソースを完全にクリーンアップし、位置をリセット
         TeardownOutput();
 
-        if (reader is not null)
-        {
-            reader.Position = 0;
-        }
+        reader?.Position = 0;
 
         State = PlaybackState.Stopped;
     }
@@ -263,38 +257,69 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
 
     private void InitializeOutputCore(AudioClientShareMode shareModeNative)
     {
-        // 排他モードの場合、デバイスのネイティブフォーマットにリサンプリングが必要か判定
         IWaveProvider waveProvider = reader!;
         IsResampling = false;
         OutputFormat = null;
 
         if (shareModeNative == AudioClientShareMode.Exclusive)
         {
-            var deviceNativeFormat = currentMMDevice!.AudioClient.MixFormat;
-            var fileFormat = reader.WaveFormat;
+            var fileFormat = reader!.WaveFormat;
 
-            System.Diagnostics.Debug.WriteLine($"[InitializeOutputCore] 排他モード: ファイル={fileFormat.SampleRate}Hz {fileFormat.Encoding}, デバイス={deviceNativeFormat.SampleRate}Hz {deviceNativeFormat.Encoding}");
+            System.Diagnostics.Debug.WriteLine(
+                $"[InitializeOutputCore] 排他モード: ファイル={fileFormat.SampleRate}Hz {fileFormat.BitsPerSample}bit {fileFormat.Channels}ch {fileFormat.Encoding}" +
+                (fileFormat is WaveFormatExtensible fe ? $" SubFormat={fe.SubFormat}" : ""));
 
-            // サンプルレート、チャンネル数、またはエンコーディングが異なる場合、リサンプリングを実行
-            if (fileFormat.SampleRate != deviceNativeFormat.SampleRate ||
-                fileFormat.Channels != deviceNativeFormat.Channels ||
-                !AreFormatsCompatible(fileFormat, deviceNativeFormat))
+            // デバイスが対応しているフォーマット候補を列挙してデバッグ出力
+            LogSupportedDeviceFormats(currentMMDevice!, fileFormat.Channels);
+
+            // ファイルのフォーマットを排他モードでデバイスが直接サポートするか確認（ビットパーフェクト判定）
+            // サンプルレート・チャンネル数・エンコーディング（SubFormat含む）がすべて一致する場合にビットパーフェクトとなる
+            bool isBitPerfect = IsFormatSupportedSafe(currentMMDevice!, fileFormat);
+
+            System.Diagnostics.Debug.WriteLine(
+                $"[InitializeOutputCore] ビットパーフェクト判定: {isBitPerfect}" +
+                $" ({fileFormat.SampleRate}Hz {fileFormat.BitsPerSample}bit {fileFormat.Channels}ch {fileFormat.Encoding})");
+
+            if (isBitPerfect)
             {
-                System.Diagnostics.Debug.WriteLine($"[InitializeOutputCore] リサンプリング実行: {fileFormat.SampleRate}Hz -> {deviceNativeFormat.SampleRate}Hz");
-
-                // 既存のリサンプラーを破棄
-                resampler?.Dispose();
-
-                // MediaFoundationResamplerでデバイスのネイティブフォーマットに変換
-                resampler = new MediaFoundationResampler(reader, deviceNativeFormat);
-                waveProvider = resampler;
-                IsResampling = true;
-                OutputFormat = deviceNativeFormat;
+                // ファイルフォーマットをそのまま出力（リサンプリング不要）
+                System.Diagnostics.Debug.WriteLine(
+                    $"[InitializeOutputCore] ビットパーフェクト再生: {fileFormat.SampleRate}Hz {fileFormat.BitsPerSample}bit {fileFormat.Channels}ch {fileFormat.Encoding}");
+                OutputFormat = fileFormat;
             }
             else
             {
-                System.Diagnostics.Debug.WriteLine($"[InitializeOutputCore] リサンプリング不要: ビットパーフェクト");
-                OutputFormat = fileFormat;
+                // ビットパーフェクト不可: デバイスが対応する最も近しいフォーマットを選択してリサンプリング
+                System.Diagnostics.Debug.WriteLine(
+                    "[InitializeOutputCore] ビットパーフェクト不可: デバイス対応フォーマットを探索");
+
+                resampler?.Dispose();
+                var bestDeviceFormat = FindBestSupportedFormat(currentMMDevice!, fileFormat);
+
+                if (bestDeviceFormat is not null)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[InitializeOutputCore] リサンプリング: {fileFormat.SampleRate}Hz {fileFormat.BitsPerSample}bit {fileFormat.Encoding} -> " +
+                        $"{bestDeviceFormat.SampleRate}Hz {bestDeviceFormat.BitsPerSample}bit {bestDeviceFormat.Encoding}" +
+                        (bestDeviceFormat is WaveFormatExtensible be ? $" SubFormat={be.SubFormat}" : ""));
+
+                    resampler = new MediaFoundationResampler(reader, bestDeviceFormat);
+                    waveProvider = resampler;
+                    IsResampling = true;
+                    OutputFormat = bestDeviceFormat;
+                }
+                else
+                {
+                    // 対応フォーマットが見つからない場合はMixFormat（デバイスのネイティブ共有フォーマット）へリサンプリング
+                    var mixFormat = currentMMDevice!.AudioClient.MixFormat;
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[InitializeOutputCore] 対応フォーマットなし: MixFormatへリサンプリング {fileFormat.SampleRate}Hz -> {mixFormat.SampleRate}Hz");
+
+                    resampler = new MediaFoundationResampler(reader, mixFormat);
+                    waveProvider = resampler;
+                    IsResampling = true;
+                    OutputFormat = mixFormat;
+                }
             }
         }
         else
@@ -328,21 +353,18 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
         var sourceExt = sourceFormat as WaveFormatExtensible;
         var deviceExt = deviceFormat as WaveFormatExtensible;
 
-        // IEEE Float形式のSubFormat GUID: 00000003-0000-0010-8000-00aa00389b71
-        var ieeeFloatGuid = new Guid("00000003-0000-0010-8000-00aa00389b71");
-
         // ソースがIeeeFloat、デバイスがExtensibleの場合
         if (sourceFormat.Encoding == WaveFormatEncoding.IeeeFloat && deviceExt != null)
         {
             // デバイスのSubFormatがIeeeFloatなら互換性あり
-            return deviceExt.SubFormat == ieeeFloatGuid;
+            return deviceExt.SubFormat == IeeeFloatSubFormatGuid;
         }
 
         // デバイスがIeeeFloat、ソースがExtensibleの場合
         if (deviceFormat.Encoding == WaveFormatEncoding.IeeeFloat && sourceExt != null)
         {
             // ソースのSubFormatがIeeeFloatなら互換性あり
-            return sourceExt.SubFormat == ieeeFloatGuid;
+            return sourceExt.SubFormat == IeeeFloatSubFormatGuid;
         }
 
         // 両方がExtensibleの場合、SubFormatを比較
@@ -438,5 +460,159 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
         return deviceInfo is not null
             ? enumerator.GetDevice(deviceInfo.Id)
             : enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+    }
+
+    /// <summary>
+    /// 指定デバイスが排他モードで対応しているサンプルレート・チャンネル数・エンコーディングの組み合わせを
+    /// デバッグ出力に列挙する。PCM / IEEE Float / WaveFormatExtensible(PCM・Float) を網羅的に試す。
+    /// </summary>
+    private static void LogSupportedDeviceFormats(MMDevice device, int fileChannels)
+    {
+        int[] sampleRates = [384000, 352800, 192000, 176400, 96000, 88200, 48000, 44100];
+        int[] bitsPerSampleList = [32, 24, 16];
+        // ファイルのチャンネル数を優先しつつ、一般的なチャンネル数を網羅する
+        int[] channelCandidates = [.. new[] { fileChannels, 1, 2, 6, 8 }.Distinct()];
+
+        System.Diagnostics.Debug.WriteLine("[InitializeOutputCore] デバイス対応フォーマット一覧:");
+
+        foreach (var channels in channelCandidates)
+        {
+            foreach (var sampleRate in sampleRates)
+            {
+                foreach (var bitsPerSample in bitsPerSampleList)
+                {
+                    // PCM (WaveFormat)
+                    TryLogFormat(device, new WaveFormat(sampleRate, bitsPerSample, channels),
+                        "PCM", channels, sampleRate, bitsPerSample);
+
+                    // WaveFormatExtensible:
+                    //   16/24bit → SubFormat=PCM、32bit → SubFormat=IEEE Float（NAudio の仕様による）
+                    TryLogFormat(device, new WaveFormatExtensible(sampleRate, bitsPerSample, channels),
+                        bitsPerSample == 32 ? "Extensible/Float" : "Extensible/PCM",
+                        channels, sampleRate, bitsPerSample);
+
+                    if (bitsPerSample == 32)
+                    {
+                        // IEEE Float (WaveFormat)
+                        TryLogFormat(device, WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, channels),
+                            "IeeeFloat", channels, sampleRate, bitsPerSample);
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// デバイスが指定フォーマットを排他モードでサポートしていればデバッグ出力する。
+    /// </summary>
+    private static void TryLogFormat(MMDevice device, WaveFormat format, string label,
+        int channels, int sampleRate, int bitsPerSample)
+    {
+        try
+        {
+            if (device.AudioClient.IsFormatSupported(AudioClientShareMode.Exclusive, format))
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"  対応: {sampleRate}Hz {bitsPerSample}bit {channels}ch ({label})");
+            }
+        }
+        catch
+        {
+            // 確認失敗は無視する
+        }
+    }
+
+    /// <summary>
+    /// デバイスが排他モードで対応しているフォーマットの中から、ファイルのフォーマットに最も近しいものを返す。
+    /// 優先順位: (1) ファイルと同じサンプルレート → (2) 差が小さい順（同差は高い方優先）。
+    /// エンコーディングはファイルに合わせ（Float → Float、PCM → PCM）、
+    /// ビット深度はファイルのビット深度を最優先とする。
+    /// WaveFormatExtensible（SubFormat付き）も候補に含め、より多くのデバイスに対応する。
+    /// 対応フォーマットが1つも見つからない場合は null を返す。
+    /// </summary>
+    private static WaveFormat? FindBestSupportedFormat(MMDevice device, WaveFormat fileFormat)
+    {
+        // サンプルレート候補: ファイルのサンプルレートからの差が小さい順（同差なら高い方優先）
+        int[] standardRates = [384000, 352800, 192000, 176400, 96000, 88200, 48000, 44100];
+        int[] sampleRates = [.. new[] { fileFormat.SampleRate }.Concat(standardRates)
+            .Distinct()
+            .OrderBy(r => Math.Abs(r - fileFormat.SampleRate))
+            .ThenByDescending(r => r)];
+
+        // ファイルがFloatかどうかを SubFormat まで含めて判定
+        bool isFloat = fileFormat.Encoding == WaveFormatEncoding.IeeeFloat ||
+                       (fileFormat is WaveFormatExtensible fileExt && fileExt.SubFormat == IeeeFloatSubFormatGuid);
+
+        // ビット深度候補: ファイルのビット深度を優先し、続いて一般的な深度を試す
+        int[] bitsCandidates = isFloat
+            ? [32]
+            : [.. new[] { fileFormat.BitsPerSample, 32, 24, 16 }.Distinct()];
+
+        foreach (var sampleRate in sampleRates)
+        {
+            foreach (var bitsPerSample in bitsCandidates)
+            {
+                // WaveFormatExtensible を優先し、通常フォーマットも続けて試す
+                // NAudio の WaveFormatExtensible(rate, bits, channels): bits==32 → SubFormat=Float、それ以外 → SubFormat=PCM
+                IEnumerable<WaveFormat> candidates = isFloat
+                    ? [
+                        new WaveFormatExtensible(sampleRate, 32, fileFormat.Channels),
+                        WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, fileFormat.Channels),
+                      ]
+                    : [
+                        new WaveFormatExtensible(sampleRate, bitsPerSample, fileFormat.Channels),
+                        new WaveFormat(sampleRate, bitsPerSample, fileFormat.Channels),
+                      ];
+
+                foreach (var candidate in candidates)
+                {
+                    if (IsFormatSupportedSafe(device, candidate))
+                    {
+                        return candidate;
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// PCM フォーマットの SubFormat GUID: {00000001-0000-0010-8000-00aa00389b71}
+    /// </summary>
+    private static readonly Guid PcmSubFormatGuid = new("00000001-0000-0010-8000-00aa00389b71");
+
+    /// <summary>
+    /// IEEE Float フォーマットの SubFormat GUID: {00000003-0000-0010-8000-00aa00389b71}
+    /// </summary>
+    private static readonly Guid IeeeFloatSubFormatGuid = new("00000003-0000-0010-8000-00aa00389b71");
+
+    /// <summary>
+    /// デバイスが指定フォーマットを排他モードでサポートしているかを安全に確認する。
+    /// IsFormatSupported が例外を投げた場合は false を返す。
+    /// </summary>
+    private static bool IsFormatSupportedSafe(MMDevice device, WaveFormat format)
+    {
+        try
+        {
+            return device.AudioClient.IsFormatSupported(AudioClientShareMode.Exclusive, format);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 2つのWaveFormatがサンプルレート・ビット深度・チャンネル数・エンコーディングの観点で同一かどうかを判定する。
+    /// エンコーディングの一致判定は<see cref="AreFormatsCompatible"/>と同様に、
+    /// 一方がIeeeFloat、他方がExtensible（SubFormatがIEEE FloatのGUID）の場合も同一とみなす。
+    /// </summary>
+    private static bool IsSameFormat(WaveFormat a, WaveFormat b)
+    {
+        return a.SampleRate == b.SampleRate
+            && a.BitsPerSample == b.BitsPerSample
+            && a.Channels == b.Channels
+            && AreFormatsCompatible(a, b);
     }
 }
