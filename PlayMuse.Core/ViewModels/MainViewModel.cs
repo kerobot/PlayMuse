@@ -101,12 +101,27 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
+        AddFiles(filePaths);
+    }
+
+    /// <summary>
+    /// 指定されたパス群（ファイル/フォルダ混在可）をプレイリストに追加する。
+    /// ドラッグ&ドロップおよび「ファイルを開く」ダイアログの両方から共通で利用される。
+    /// フォルダが指定された場合は配下（サブフォルダ含む）の対応音楽ファイルをすべて追加する。
+    /// 非対応拡張子のファイルはスキップし、ステータスメッセージで通知する。
+    /// </summary>
+    public void AddFiles(IEnumerable<string> paths)
+    {
+        var resolvedFilePaths = ExpandToAudioFilePaths(paths);
+
         var addedCount = 0;
-        foreach (var filePath in filePaths)
+        var skippedCount = 0;
+
+        foreach (var filePath in resolvedFilePaths)
         {
             if (!SupportedAudioFormats.IsSupported(filePath))
             {
-                StatusMessage = $"'{Path.GetFileName(filePath)}' は対応していない形式のため、スキップしました。";
+                skippedCount++;
                 continue;
             }
 
@@ -117,9 +132,51 @@ public partial class MainViewModel : ObservableObject, IDisposable
             _ = LoadMetadataAsync(track);
         }
 
-        if (addedCount > 0)
+        if (addedCount > 0 && skippedCount > 0)
+        {
+            StatusMessage = $"{addedCount} 件のファイルをプレイリストに追加しました。（{skippedCount} 件は非対応形式のためスキップしました）";
+        }
+        else if (addedCount > 0)
         {
             StatusMessage = $"{addedCount} 件のファイルをプレイリストに追加しました。";
+        }
+        else if (skippedCount > 0)
+        {
+            StatusMessage = "対応していない形式のため、ファイルを追加できませんでした。";
+        }
+    }
+
+    /// <summary>
+    /// パス群を走査し、フォルダはサブフォルダを含めて配下のファイルパスへ展開する。
+    /// ファイルはそのまま列挙し、順序は入力順を維持する。
+    /// </summary>
+    internal static IEnumerable<string> ExpandToAudioFilePaths(IEnumerable<string> paths)
+    {
+        foreach (var path in paths)
+        {
+            if (Directory.Exists(path))
+            {
+                IEnumerable<string> filesInDirectory;
+                try
+                {
+                    filesInDirectory = Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories)
+                        .Where(SupportedAudioFormats.IsSupported)
+                        .OrderBy(f => f, StringComparer.OrdinalIgnoreCase);
+                }
+                catch (Exception)
+                {
+                    continue;
+                }
+
+                foreach (var file in filesInDirectory)
+                {
+                    yield return file;
+                }
+            }
+            else if (File.Exists(path))
+            {
+                yield return path;
+            }
         }
     }
 

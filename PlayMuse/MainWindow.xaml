@@ -39,7 +39,10 @@
         <ListBox Grid.Row="1"
                  ItemsSource="{Binding Tracks}"
                  SelectedItem="{Binding SelectedTrack}"
-                 BorderThickness="1">
+                 BorderThickness="1"
+                 AllowDrop="True"
+                 DragOver="TrackList_DragOver"
+                 Drop="TrackList_Drop">
             <ListBox.ItemContainerStyle>
                 <Style TargetType="ListBoxItem">
                     <EventSetter Event="MouseDoubleClick" Handler="TrackItem_MouseDoubleClick"/>

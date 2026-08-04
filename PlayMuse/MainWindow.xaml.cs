@@ -48,4 +48,25 @@ public partial class MainWindow : Window
 
     private void PositionSlider_PreviewMouseUp(object sender, MouseButtonEventArgs e)
         => viewModel.IsSeeking = false;
+
+    private void TrackList_DragOver(object sender, DragEventArgs e)
+    {
+        e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop)
+            ? DragDropEffects.Copy
+            : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private void TrackList_Drop(object sender, DragEventArgs e)
+    {
+        if (!e.Data.GetDataPresent(DataFormats.FileDrop))
+        {
+            return;
+        }
+
+        if (e.Data.GetData(DataFormats.FileDrop) is string[] paths)
+        {
+            viewModel.AddFiles(paths);
+        }
+    }
 }
