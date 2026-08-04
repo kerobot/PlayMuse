@@ -20,6 +20,8 @@ public sealed class MetadataService(IDispatcherService dispatcherService) : IMet
             string? artist = null;
             string? album = null;
             TimeSpan? duration = null;
+            var sampleRate = 0;
+            byte[]? albumArtData = null;
 
             try
             {
@@ -33,6 +35,16 @@ public sealed class MetadataService(IDispatcherService dispatcherService) : IMet
                 if (file.Properties?.Duration is { } fileDuration && fileDuration > TimeSpan.Zero)
                 {
                     duration = fileDuration;
+                }
+
+                if (file.Properties?.AudioSampleRate is { } fileSampleRate && fileSampleRate > 0)
+                {
+                    sampleRate = fileSampleRate;
+                }
+
+                if (tag.Pictures is { Length: > 0 } pictures)
+                {
+                    albumArtData = pictures[0].Data.Data;
                 }
             }
             catch (Exception)
@@ -55,6 +67,9 @@ public sealed class MetadataService(IDispatcherService dispatcherService) : IMet
                 {
                     track.Duration = duration.Value;
                 }
+
+                track.SampleRate = sampleRate;
+                track.AlbumArtData = albumArtData;
             });
         }, cancellationToken);
     }

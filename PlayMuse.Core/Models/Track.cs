@@ -24,6 +24,12 @@ public sealed partial class Track : ObservableObject
     [ObservableProperty]
     private TimeSpan duration;
 
+    [ObservableProperty]
+    private int sampleRate;
+
+    [ObservableProperty]
+    private byte[]? albumArtData;
+
     public Track(string filePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(filePath);

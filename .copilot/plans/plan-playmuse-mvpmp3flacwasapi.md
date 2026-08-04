@@ -96,7 +96,7 @@
 - ✅ **`feat: loop playback` としてコミットする。**
 - ✅ **WAVおよびAACファイル対応を追加する。拡張子許可リストと `OpenFileDialog` のフィルタに `.wav` / `.aac` を追加し、`SupportedAudioFormats` ヘルパーを拡張する。既存の `AudioFileReader`→`WasapiOut` パイプラインでの再生可能性を検証し、非対応の場合は注記する。**
 - ✅ **プレイリストUIをドラッグ＆ドロップ対応にする。`ListBox` に `AllowDrop=true` を設定し、`Drop` イベント＆`DragOver` イベントハンドラを実装してファイル追加を実現する。フォルダ選択時は配下の対応フォーマット音楽ファイルをすべて追加する。**
--  **プレイリスト表示を拡張する。各曲ごとに左側にアルバムアート（`TagLibSharp` から抽出、フォールバック画像を用意）、そのタイトルとアルバム名を2段表示、さらにアーティスト名、再生時間（MM:SS形式）、サンプリングレート（kHzで表記）を表示するカスタムテンプレート（`DataTemplate`）を `ListBox` に適用する。`TagLibSharp` では画像データが取得できない場合のフォールバック戦略を実装する。**
+- ✅ **プレイリスト表示を拡張する。各曲ごとに左側にアルバムアート（`TagLibSharp` から抽出、フォールバック画像を用意）、そのタイトルとアルバム名を2段表示、さらにアーティスト名、再生時間（MM:SS形式）、サンプリングレート（kHzで表記）を表示するカスタムテンプレート（`DataTemplate`）を `ListBox` に適用する。`TagLibSharp` では画像データが取得できない場合のフォールバック戦略を実装する。**
 -  **プレイリスト各曲の右端に曲削除ボタンを追加する。ボタン押下時に `IPlaylistService.RemoveAt()` を呼び出し、再生中の曲が削除された場合は再生を停止して次の曲へ移動するロジック（または停止状態を維持するか明確化）を実装する。**
 -  **プレイリスト各曲の左端にグリップを追加し、ドラッグ＆ドロップで曲順を入れ替えられるようにする。`ListBox` の `PreviewMouseLeftButtonDown` / `PreviewMouseMove` / `Drop` イベントを活用し、`IPlaylistService.Move(int oldIndex, int newIndex)` を呼び出して順序を更新する。**
 -  **プレイリストのローカル保存/読込機能を実装する。`IPlaylistService` に `SavePlaylist(string filePath)` / `LoadPlaylist(string filePath)` メソッドを追加し、トラックのファイルパスリストをJSON形式（例: `.plm` 拡張子）で保存/読込できるようにする。**
