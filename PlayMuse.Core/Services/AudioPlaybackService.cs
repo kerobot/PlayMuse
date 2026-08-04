@@ -32,6 +32,7 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
     private PlaybackState state = PlaybackState.Stopped;
     private float desiredVolume = 1.0f;
     private bool isUserStopped;
+    private string? normalizedTempWavPath;
 
     public PlaybackState State
     {
@@ -101,10 +102,16 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
         TeardownOutput();
         reader?.Dispose();
         reader = null;
+        DeleteNormalizedTempWavIfAny();
 
         try
         {
-            var newReader = new AudioFileReader(track.FilePath)
+            // WAVE_FORMAT_EXTENSIBLE（24bit/32bit float 等の高解像度WAVで一般的）は、
+            // AudioFileReader が内部でACM変換を試みて失敗することがあるため、事前に正規化する。
+            var normalizedPath = WavFormatNormalizer.NormalizeIfNeeded(track.FilePath);
+            normalizedTempWavPath = normalizedPath;
+
+            var newReader = new AudioFileReader(normalizedPath ?? track.FilePath)
             {
                 Volume = desiredVolume,
             };
@@ -116,6 +123,7 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
         catch (Exception ex)
         {
             reader = null;
+            DeleteNormalizedTempWavIfAny();
             State = PlaybackState.Stopped;
             RaiseError($"'{track.FileName}' を読み込めませんでした。対応していないファイル形式か、ファイルが破損している可能性があります。", ex);
         }
@@ -203,6 +211,28 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
         TeardownOutput();
         reader?.Dispose();
         reader = null;
+        DeleteNormalizedTempWavIfAny();
+    }
+
+    private void DeleteNormalizedTempWavIfAny()
+    {
+        if (normalizedTempWavPath is null)
+        {
+            return;
+        }
+
+        try
+        {
+            File.Delete(normalizedTempWavPath);
+        }
+        catch
+        {
+            // 一時ファイルの削除失敗は再生に影響しないため無視する。
+        }
+        finally
+        {
+            normalizedTempWavPath = null;
+        }
     }
 
     private void ReinitializeOutputPreservingState()
