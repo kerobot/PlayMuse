@@ -147,6 +147,21 @@ public partial class MainViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
+    /// 指定したトラックをプレイリストから削除する。削除対象が再生中の場合は、
+    /// PlaylistService側でCurrentTrackChangedが発火し、後続トラックの再生準備が行われる。
+    /// </summary>
+    [RelayCommand]
+    private void RemoveTrack(Track? track)
+    {
+        if (track is null)
+        {
+            return;
+        }
+
+        playlistService.Remove(track);
+    }
+
+    /// <summary>
     /// パス群を走査し、フォルダはサブフォルダを含めて配下のファイルパスへ展開する。
     /// ファイルはそのまま列挙し、順序は入力順を維持する。
     /// </summary>
@@ -386,6 +401,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
             if (CurrentTrack is not null)
             {
                 playbackService.Load(CurrentTrack);
+            }
+            else
+            {
+                // プレイリストが空になった、または削除により現在トラックが失われた場合は再生を停止する。
+                playbackService.Stop();
             }
 
             Duration = CurrentTrack?.Duration ?? TimeSpan.Zero;
