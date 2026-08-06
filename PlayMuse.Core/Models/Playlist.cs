@@ -114,4 +114,39 @@ public sealed class Playlist
         CurrentIndex = index;
         return true;
     }
+
+    /// <summary>
+    /// 指定したトラックを targetIndex（挿入先、移動前のインデックス基準）の位置へ移動する。
+    /// 現在再生中のトラック参照は移動後も維持され、CurrentIndexは新しい位置へ追従する。
+    /// </summary>
+    public bool Move(Track track, int targetIndex)
+    {
+        ArgumentNullException.ThrowIfNull(track);
+
+        var currentPosition = Tracks.IndexOf(track);
+        if (currentPosition < 0)
+        {
+            return false;
+        }
+
+        var clampedTargetIndex = Math.Clamp(targetIndex, 0, Tracks.Count);
+        var adjustedTargetIndex = currentPosition < clampedTargetIndex ? clampedTargetIndex - 1 : clampedTargetIndex;
+        adjustedTargetIndex = Math.Clamp(adjustedTargetIndex, 0, Tracks.Count - 1);
+
+        if (adjustedTargetIndex == currentPosition)
+        {
+            return false;
+        }
+
+        var currentTrackReference = CurrentTrack;
+
+        Tracks.Move(currentPosition, adjustedTargetIndex);
+
+        if (currentTrackReference is not null)
+        {
+            CurrentIndex = Tracks.IndexOf(currentTrackReference);
+        }
+
+        return true;
+    }
 }

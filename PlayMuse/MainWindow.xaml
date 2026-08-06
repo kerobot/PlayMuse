@@ -13,6 +13,7 @@
         <converters:NullToVisibilityConverter x:Key="NullToVisibilityConverter"/>
         <converters:ByteArrayToImageSourceConverter x:Key="ByteArrayToImageSourceConverter"/>
         <converters:SampleRateToStringConverter x:Key="SampleRateToStringConverter"/>
+        <converters:DraggingOpacityConverter x:Key="DraggingOpacityConverter"/>
     </Window.Resources>
     <Grid Margin="12">
         <Grid.RowDefinitions>
@@ -29,6 +30,12 @@
         <DockPanel Grid.Row="0" Margin="0,0,0,8" LastChildFill="False">
             <Button DockPanel.Dock="Left" Content="開く" Padding="12,4"
                     Command="{Binding OpenFilesCommand}"/>
+            <Button DockPanel.Dock="Left" Content="📂" Padding="8,4" Margin="4,0,0,0"
+                    ToolTip="プレイリストを開く"
+                    Command="{Binding OpenPlaylistCommand}"/>
+            <Button DockPanel.Dock="Left" Content="💾" Padding="8,4" Margin="4,0,0,0"
+                    ToolTip="プレイリストを保存"
+                    Command="{Binding SavePlaylistCommand}"/>
             <ComboBox DockPanel.Dock="Right" Width="180"
                       ItemsSource="{Binding Devices}"
                       DisplayMemberPath="Name"
@@ -43,38 +50,57 @@
                  SelectedItem="{Binding SelectedTrack}"
                  BorderThickness="1"
                  AllowDrop="True"
+                 Grid.IsSharedSizeScope="True"
                  DragOver="TrackList_DragOver"
+                 DragLeave="TrackList_DragLeave"
                  Drop="TrackList_Drop">
             <ListBox.ItemContainerStyle>
                 <Style TargetType="ListBoxItem">
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
                     <EventSetter Event="MouseDoubleClick" Handler="TrackItem_MouseDoubleClick"/>
+                    <Setter Property="Opacity">
+                        <Setter.Value>
+                            <MultiBinding Converter="{StaticResource DraggingOpacityConverter}">
+                                <Binding/>
+                                <Binding Path="DataContext.DraggingTrack" RelativeSource="{RelativeSource AncestorType=ListBox}"/>
+                            </MultiBinding>
+                        </Setter.Value>
+                    </Setter>
                 </Style>
             </ListBox.ItemContainerStyle>
             <ListBox.ItemTemplate>
                 <DataTemplate>
-                    <Grid Margin="4,2">
+                    <Grid Margin="4,2" HorizontalAlignment="Stretch">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto" SharedSizeGroup="TrackGrip"/>
+                            <ColumnDefinition Width="Auto" SharedSizeGroup="TrackArt"/>
                             <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto" SharedSizeGroup="TrackAlbum"/>
+                            <ColumnDefinition Width="Auto" SharedSizeGroup="TrackRemove"/>
                         </Grid.ColumnDefinitions>
-                        <Border Grid.Column="0" Width="40" Height="40" Margin="0,0,8,0"
+                        <TextBlock Grid.Column="0" Text="⠿" FontSize="16" Opacity="0.6"
+                                   VerticalAlignment="Center" Margin="0,0,8,0"
+                                   Cursor="SizeAll" ToolTip="ドラッグして並べ替え"
+                                   PreviewMouseLeftButtonDown="DragHandle_PreviewMouseLeftButtonDown"
+                                   PreviewMouseMove="DragHandle_PreviewMouseMove"/>
+                        <Border Grid.Column="1" Width="40" Height="40" Margin="0,0,8,0"
                                 Background="#DDDDDD" BorderBrush="#CCCCCC" BorderThickness="1">
                             <Image Source="{Binding AlbumArtData, Converter={StaticResource ByteArrayToImageSourceConverter}}"
                                    Stretch="UniformToFill"/>
                         </Border>
-                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="0,0,8,0">
                             <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Text="{Binding Artist}" FontSize="11" Opacity="0.7" TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="3" VerticalAlignment="Center" Margin="0,0,8,0" MinWidth="90">
                             <TextBlock Text="{Binding Album}" FontSize="11" Opacity="0.7" TextTrimming="CharacterEllipsis"/>
                             <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="{Binding Artist}" FontSize="11" Opacity="0.7" TextTrimming="CharacterEllipsis"/>
-                                <TextBlock Text=" ・ " FontSize="11" Opacity="0.5"/>
-                                <TextBlock Text="{Binding Duration, Converter={StaticResource TimeSpanToStringConverter}}" FontSize="11" Opacity="0.7"/>
-                                <TextBlock Text=" ・ " FontSize="11" Opacity="0.5"/>
-                                <TextBlock Text="{Binding SampleRate, Converter={StaticResource SampleRateToStringConverter}}" FontSize="11" Opacity="0.7"/>
+                                <TextBlock Text="{Binding Duration, Converter={StaticResource TimeSpanToStringConverter}}" FontSize="10" Opacity="0.6"/>
+                                <TextBlock Text=" ・ " FontSize="10" Opacity="0.4"/>
+                                <TextBlock Text="{Binding SampleRate, Converter={StaticResource SampleRateToStringConverter}}" FontSize="10" Opacity="0.6"/>
                             </StackPanel>
                         </StackPanel>
-                        <Button Grid.Column="2" Content="✕" Padding="6,2" VerticalAlignment="Center"
+                        <Button Grid.Column="4" Content="✕" Padding="6,2" VerticalAlignment="Center"
                                 ToolTip="プレイリストから削除"
                                 Command="{Binding DataContext.RemoveTrackCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
                                 CommandParameter="{Binding}"/>

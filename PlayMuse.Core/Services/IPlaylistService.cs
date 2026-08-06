@@ -29,4 +29,17 @@ public interface IPlaylistService
     bool MovePrevious();
 
     bool TrySetCurrentIndex(int index);
+
+    bool Move(Track track, int targetIndex);
+
+    /// <summary>
+    /// 現在のプレイリスト（トラックの絶対パス一覧）をJSON形式で指定パスへ保存する。
+    /// </summary>
+    void SavePlaylist(string filePath);
+
+    /// <summary>
+    /// 指定パスのプレイリストファイルを読み込み、現在のプレイリストを置き換える。
+    /// 存在しないトラックファイルはスキップされ、読込結果として返される。
+    /// </summary>
+    PlaylistLoadResult LoadPlaylist(string filePath);
 }

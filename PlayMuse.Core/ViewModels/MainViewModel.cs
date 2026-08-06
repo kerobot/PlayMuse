@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PlayMuse.Core.Models;
@@ -21,6 +22,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private readonly IMetadataService metadataService;
     private readonly ISettingsService settingsService;
     private bool isInitializing = true;
+    private string? currentPlaylistFilePath;
 
     [ObservableProperty]
     private Track? currentTrack;
@@ -54,6 +56,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     private bool isLoopEnabled;
+
+    /// <summary>
+    /// プレイリスト上でドラッグ操作中のトラック。Viewはこれを参照してドラッグ中アイテムの半透明表示を行う。
+    /// </summary>
+    [ObservableProperty]
+    private Track? draggingTrack;
 
     public MainViewModel(
         IAudioPlaybackService playbackService,
@@ -102,6 +110,96 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
 
         AddFiles(filePaths);
+    }
+
+    /// <summary>
+    /// 現在のプレイリストをJSON形式（.plm）で指定パスへ保存する。
+    /// </summary>
+    [RelayCommand]
+    private void SavePlaylist()
+    {
+        var filePath = fileDialogService.ShowSavePlaylistFileDialog();
+        if (filePath is null)
+        {
+            return;
+        }
+
+        try
+        {
+            playlistService.SavePlaylist(filePath);
+            currentPlaylistFilePath = filePath;
+            StatusMessage = $"プレイリストを保存しました。（{Path.GetFileName(filePath)}）";
+            SaveSettingsIfReady();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            StatusMessage = "プレイリストの保存に失敗しました。（アクセス権限を確認してください）";
+        }
+        catch (Exception)
+        {
+            StatusMessage = "プレイリストの保存に失敗しました。";
+        }
+    }
+
+    /// <summary>
+    /// プレイリストファイル（.plm）を読み込み、現在のプレイリストを置き換える。
+    /// 存在しないトラックファイルはスキップされ、ステータスメッセージで通知される。
+    /// </summary>
+    [RelayCommand]
+    private void OpenPlaylist()
+    {
+        var filePath = fileDialogService.ShowOpenPlaylistFileDialog();
+        if (filePath is null)
+        {
+            return;
+        }
+
+        LoadPlaylistFromFile(filePath, isAutoLoad: false);
+    }
+
+    /// <summary>
+    /// 指定パスのプレイリストファイルを読み込む。読込結果とあわせて異常系（ファイル不在、
+    /// JSON形式不正、アクセス権限なし等）をクラッシュさせずステータスメッセージで通知する。
+    /// isAutoLoadはアプリ起動時の自動読込用で、メッセージ文言のみ切り替える。
+    /// </summary>
+    private void LoadPlaylistFromFile(string filePath, bool isAutoLoad)
+    {
+        if (!File.Exists(filePath))
+        {
+            StatusMessage = isAutoLoad
+                ? "前回開いていたプレイリストファイルが見つからないため、自動読み込みをスキップしました。"
+                : "指定されたプレイリストファイルが見つかりません。";
+            return;
+        }
+
+        try
+        {
+            var result = playlistService.LoadPlaylist(filePath);
+            currentPlaylistFilePath = filePath;
+
+            foreach (var track in Tracks)
+            {
+                _ = LoadMetadataAsync(track);
+            }
+
+            StatusMessage = result.MissingFilePaths.Count > 0
+                ? $"{result.LoadedCount} 件のトラックを読み込みました。（{result.MissingFilePaths.Count} 件のファイルが見つからずスキップしました）"
+                : $"{result.LoadedCount} 件のトラックを読み込みました。";
+
+            SaveSettingsIfReady();
+        }
+        catch (JsonException)
+        {
+            StatusMessage = "プレイリストファイルの形式が不正です。";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            StatusMessage = "プレイリストファイルの読み込みに失敗しました。（アクセス権限を確認してください）";
+        }
+        catch (Exception)
+        {
+            StatusMessage = "プレイリストの読み込みに失敗しました。";
+        }
     }
 
     /// <summary>
@@ -287,6 +385,15 @@ public partial class MainViewModel : ObservableObject, IDisposable
     }
 
     private bool CanGoPrevious() => playlistService.CurrentIndex > 0;
+
+    /// <summary>
+    /// プレイリスト内で指定トラックをドラッグ＆ドロップで並べ替える。
+    /// 現在再生中のトラック参照は移動後も維持される（PlaylistService/Playlist側で保証）。
+    /// </summary>
+    public void MoveTrack(Track track, int targetIndex)
+    {
+        playlistService.Move(track, targetIndex);
+    }
 
     /// <summary>
     /// プレイリスト上のトラックをダブルクリックした際に、そのトラックへ即座に切り替えて再生する。
@@ -475,6 +582,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
 
         playbackService.SetShareMode(IsExclusiveMode ? AudioShareMode.Exclusive : AudioShareMode.Shared);
+
+        if (!string.IsNullOrWhiteSpace(settings.LastPlaylistFilePath))
+        {
+            LoadPlaylistFromFile(settings.LastPlaylistFilePath, isAutoLoad: true);
+        }
     }
 
     private void SaveSettingsIfReady()
@@ -490,6 +602,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             OutputDeviceId = SelectedDevice?.Id,
             Volume = (float)Volume,
             IsLoopEnabled = IsLoopEnabled,
+            LastPlaylistFilePath = currentPlaylistFilePath,
         });
     }
 
