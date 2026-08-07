@@ -340,7 +340,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private bool CanPlayPause() => CurrentTrack is not null || SelectedTrack is not null;
 
     [ObservableProperty]
-    private string playPauseButtonText = "再生";
+    private string playPauseButtonText = "PLAY";
 
     partial void OnSelectedTrackChanged(Track? value)
     {
@@ -656,7 +656,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     private void UpdatePlayPauseButton()
     {
-        PlayPauseButtonText = PlaybackStatus == PlaybackState.Playing ? "停止" : "再生";
+        PlayPauseButtonText = PlaybackStatus == PlaybackState.Playing ? "STOP" : "PLAY";
     }
 
     public void Dispose()

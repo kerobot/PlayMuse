@@ -33,6 +33,7 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
     private float desiredVolume = 1.0f;
     private bool isUserStopped;
     private string? normalizedTempWavPath;
+    private Track? pendingTrack;
 
     public PlaybackState State
     {
@@ -99,11 +100,24 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
     {
         ArgumentNullException.ThrowIfNull(track);
 
+        // 実際のデコード（AudioFileReader生成）はコストが高いため、ここでは行わず
+        // Play() 呼び出し時まで遅延させる。これによりプレイリスト読込や曲切替時に
+        // UIスレッドがブロックされることを防ぐ。
         TeardownOutput();
         reader?.Dispose();
         reader = null;
         DeleteNormalizedTempWavIfAny();
 
+        pendingTrack = track;
+        State = PlaybackState.Stopped;
+    }
+
+    /// <summary>
+    /// 保留中のトラック（<see cref="pendingTrack"/>）を実際にデコードし、<see cref="reader"/> へ反映する。
+    /// 正規化・AudioFileReader生成といった重い処理はここで初めて実行される。
+    /// </summary>
+    private bool TryLoadReader(Track track)
+    {
         try
         {
             // WAVE_FORMAT_EXTENSIBLE（24bit/32bit float 等の高解像度WAVで一般的）は、
@@ -118,7 +132,7 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
 
             reader = newReader;
             track.Duration = newReader.TotalTime;
-            State = PlaybackState.Stopped;
+            return true;
         }
         catch (Exception ex)
         {
@@ -126,6 +140,7 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
             DeleteNormalizedTempWavIfAny();
             State = PlaybackState.Stopped;
             RaiseError($"'{track.FileName}' を読み込めませんでした。対応していないファイル形式か、ファイルが破損している可能性があります。", ex);
+            return false;
         }
     }
 
@@ -133,7 +148,10 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
     {
         if (reader is null)
         {
-            return;
+            if (pendingTrack is null || !TryLoadReader(pendingTrack))
+            {
+                return;
+            }
         }
 
         try

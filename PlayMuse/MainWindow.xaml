@@ -6,7 +6,7 @@
         xmlns:local="clr-namespace:PlayMuse"
         xmlns:converters="clr-namespace:PlayMuse.Converters"
         mc:Ignorable="d"
-        Title="PlayMuse" Height="640" Width="440" MinHeight="480" MinWidth="440">
+        Title="PlayMuse" Height="560" Width="560" MinHeight="560" MinWidth="560">
     <Window.Resources>
         <converters:TimeSpanToSecondsConverter x:Key="TimeSpanToSecondsConverter"/>
         <converters:TimeSpanToStringConverter x:Key="TimeSpanToStringConverter"/>
@@ -28,7 +28,7 @@
 
         <!-- ツールバー: ファイルを開く / 出力デバイス選択 / 排他モード切替 -->
         <DockPanel Grid.Row="0" Margin="0,0,0,8" LastChildFill="False">
-            <Button DockPanel.Dock="Left" Content="開く" Padding="12,4"
+            <Button DockPanel.Dock="Left" Content="OPEN" Padding="12,4"
                     Command="{Binding OpenFilesCommand}"/>
             <Button DockPanel.Dock="Left" Content="📂" Padding="8,4" Margin="4,0,0,0"
                     ToolTip="プレイリストを開く"
@@ -40,7 +40,7 @@
                       ItemsSource="{Binding Devices}"
                       DisplayMemberPath="Name"
                       SelectedItem="{Binding SelectedDevice}"/>
-            <CheckBox DockPanel.Dock="Right" Content="排他モード" VerticalAlignment="Center" Margin="0,0,8,0"
+            <CheckBox DockPanel.Dock="Right" Content="EXCLUSIVE MODE" VerticalAlignment="Center" Margin="0,0,8,0"
                       IsChecked="{Binding IsExclusiveMode}"/>
         </DockPanel>
 
@@ -173,10 +173,10 @@
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="80"/>
             </Grid.ColumnDefinitions>
-            <Button Grid.Column="0" Content="前へ" Padding="10,4" Margin="0,0,4,0" Command="{Binding PreviousCommand}"/>
+            <Button Grid.Column="0" Content="PREV" Padding="10,4" Margin="0,0,4,0" Command="{Binding PreviousCommand}"/>
             <Button Grid.Column="1" Content="{Binding PlayPauseButtonText}" Padding="10,4" Margin="0,0,4,0" Command="{Binding PlayPauseCommand}"/>
-            <Button Grid.Column="2" Content="次へ" Padding="10,4" Command="{Binding NextCommand}"/>
-            <TextBlock Grid.Column="4" Text="音量" VerticalAlignment="Center" Margin="12,0,4,0"/>
+            <Button Grid.Column="2" Content="NEXT" Padding="10,4" Command="{Binding NextCommand}"/>
+            <TextBlock Grid.Column="4" Text="VOLUME" VerticalAlignment="Center" Margin="12,0,4,0"/>
             <Slider Grid.Column="5" VerticalAlignment="Center" Minimum="0" Maximum="1"
                     Value="{Binding Volume}"/>
         </Grid>
