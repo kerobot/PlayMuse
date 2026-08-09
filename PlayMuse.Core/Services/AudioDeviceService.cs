@@ -1,14 +1,35 @@
 using System.Runtime.InteropServices;
 using NAudio.CoreAudioApi;
+using NAudio.CoreAudioApi.Interfaces;
 using PlayMuse.Core.Models;
 
 namespace PlayMuse.Core.Services;
 
 /// <summary>
 /// <see cref="MMDeviceEnumerator"/> を用いてWASAPIのレンダーエンドポイント（出力デバイス）を列挙するサービス。
+/// あわせて<see cref="IMMNotificationClient"/>によりデバイスの追加/削除/切断や既定デバイスの変更を検知し、
+/// <see cref="DevicesChanged"/>イベントとして通知する。
 /// </summary>
-public sealed class AudioDeviceService : IAudioDeviceService
+public sealed class AudioDeviceService : IAudioDeviceService, IMMNotificationClient, IDisposable
 {
+    private readonly MMDeviceEnumerator notificationEnumerator = new();
+    private bool isNotificationRegistered;
+
+    public AudioDeviceService()
+    {
+        try
+        {
+            notificationEnumerator.RegisterEndpointNotificationCallback(this);
+            isNotificationRegistered = true;
+        }
+        catch (COMException)
+        {
+            // 通知の登録に失敗しても、デバイス列挙自体は引き続き利用できるため致命的ではない。
+        }
+    }
+
+    public event EventHandler? DevicesChanged;
+
     public IReadOnlyList<AudioDeviceInfo> GetDevices()
     {
         try
@@ -62,5 +83,47 @@ public sealed class AudioDeviceService : IAudioDeviceService
             // 既定の再生デバイスが存在しない環境（デバイス未接続等）を考慮し、nullを返す。
             return null;
         }
+    }
+
+    void IMMNotificationClient.OnDeviceStateChanged(string deviceId, DeviceState newState) => RaiseDevicesChanged();
+
+    void IMMNotificationClient.OnDeviceAdded(string deviceId) => RaiseDevicesChanged();
+
+    void IMMNotificationClient.OnDeviceRemoved(string deviceId) => RaiseDevicesChanged();
+
+    void IMMNotificationClient.OnDefaultDeviceChanged(DataFlow flow, Role role, string defaultDeviceId)
+    {
+        // 再生(Render)側の既定デバイス変更のみを対象とする。
+        if (flow == DataFlow.Render)
+        {
+            RaiseDevicesChanged();
+        }
+    }
+
+    void IMMNotificationClient.OnPropertyValueChanged(string deviceId, PropertyKey key)
+    {
+        // プロパティ変更（名称等）は一覧の再構築対象外。
+    }
+
+    private void RaiseDevicesChanged()
+    {
+        DevicesChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    public void Dispose()
+    {
+        if (isNotificationRegistered)
+        {
+            try
+            {
+                notificationEnumerator.UnregisterEndpointNotificationCallback(this);
+            }
+            catch (COMException)
+            {
+                // 破棄時の解除失敗は無視する。
+            }
+        }
+
+        notificationEnumerator.Dispose();
     }
 }

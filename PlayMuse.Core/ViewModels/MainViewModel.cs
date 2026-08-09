@@ -23,6 +23,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private readonly ISettingsService settingsService;
     private bool isInitializing = true;
     private string? currentPlaylistFilePath;
+    private int trackUnavailableSkipCount;
 
     [ObservableProperty]
     private Track? currentTrack;
@@ -85,6 +86,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         this.playbackService.ErrorOccurred += OnPlaybackErrorOccurred;
         this.playlistService.CurrentTrackChanged += OnCurrentTrackChanged;
         this.playlistService.Tracks.CollectionChanged += OnTracksCollectionChanged;
+        this.deviceService.DevicesChanged += OnDevicesChanged;
 
         LoadDevices();
         ApplyPersistedSettings();
@@ -472,6 +474,22 @@ public partial class MainViewModel : ObservableObject, IDisposable
         // NAudioのコールバックはUIスレッド以外から発火し得るため、Dispatcherへマーシャリングする。
         dispatcherService.Invoke(() =>
         {
+            if (e == PlaybackState.Playing)
+            {
+                // 正常に再生が開始できたので、自動スキップの連続カウントをリセットする。
+                trackUnavailableSkipCount = 0;
+
+                // Track.Durationはメタデータの非同期読み込み完了時に更新されるため、
+                // 起動直後などメタデータ読み込みが完了する前に再生を開始すると0のまま取り残されることがある。
+                // 実際にデコードされた正しい長さ（playbackService.Duration）で必ず上書きし、
+                // シークバーのMaximumがずれる（Position加算に伴い右端に張り付いて見える）事象を防ぐ。
+                var actualDuration = playbackService.Duration;
+                if (actualDuration > TimeSpan.Zero)
+                {
+                    Duration = actualDuration;
+                }
+            }
+
             PlaybackStatus = e;
             UpdateAudioInfo();
             UpdatePlayPauseButton();
@@ -495,7 +513,110 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     private void OnPlaybackErrorOccurred(object? sender, AudioErrorEventArgs e)
     {
-        dispatcherService.Invoke(() => StatusMessage = e.Message);
+        dispatcherService.Invoke(() =>
+        {
+            StatusMessage = e.Message;
+
+            switch (e.Kind)
+            {
+                case AudioErrorKind.TrackUnavailable:
+                    TrySkipUnavailableTrack();
+                    break;
+                case AudioErrorKind.DeviceDisconnected:
+                    RecoverFromDeviceDisconnection();
+                    break;
+            }
+        });
+    }
+
+    /// <summary>
+    /// ファイル削除/移動などで現在トラックが再生不可能だった場合に、次のトラックへ自動でスキップして再生を継続する。
+    /// 全トラックが連続で失敗するケースでは無限ループにならないようカウントで上限を設ける。
+    /// </summary>
+    private void TrySkipUnavailableTrack()
+    {
+        if (Tracks.Count == 0 || trackUnavailableSkipCount >= Tracks.Count)
+        {
+            trackUnavailableSkipCount = 0;
+            StatusMessage = "再生可能なトラックが見つかりませんでした。";
+            return;
+        }
+
+        trackUnavailableSkipCount++;
+
+        if (playlistService.MoveNext())
+        {
+            playbackService.Play();
+        }
+        else
+        {
+            trackUnavailableSkipCount = 0;
+        }
+    }
+
+    /// <summary>
+    /// 出力デバイスが切断された場合に、他の利用可能なデバイスへ自動切り替えて再生を継続する。
+    /// 切り替え先がない場合はユーザーにメッセージを表示して再生を停止する。
+    /// </summary>
+    private void RecoverFromDeviceDisconnection()
+    {
+        RefreshDevicesAndRecoverIfNeeded(preferResume: true);
+    }
+
+    private void OnDevicesChanged(object? sender, EventArgs e)
+    {
+        dispatcherService.Invoke(() => RefreshDevicesAndRecoverIfNeeded(preferResume: true));
+    }
+
+    /// <summary>
+    /// デバイス一覧を再取得し、選択中のデバイスが利用不可になっていれば他のデバイスへ自動で切り替える。
+    /// 利用可能なデバイスが1つもない場合は再生を停止してユーザーに通知する。
+    /// </summary>
+    private void RefreshDevicesAndRecoverIfNeeded(bool preferResume)
+    {
+        var previousSelectedId = SelectedDevice?.Id;
+
+        Devices.Clear();
+
+        IReadOnlyList<AudioDeviceInfo> devices;
+        try
+        {
+            devices = deviceService.GetDevices();
+        }
+        catch (Exception)
+        {
+            StatusMessage = "再生デバイスの取得に失敗しました。";
+            return;
+        }
+
+        foreach (var device in devices)
+        {
+            Devices.Add(device);
+        }
+
+        if (Devices.Count == 0)
+        {
+            StatusMessage = "利用可能な再生デバイスが見つかりませんでした。再生を停止します。";
+            playbackService.Stop();
+            SelectedDevice = null;
+            return;
+        }
+
+        if (previousSelectedId is not null && Devices.Any(d => d.Id == previousSelectedId))
+        {
+            // 選択中のデバイスは引き続き利用可能。一覧のみ更新済み。
+            return;
+        }
+
+        var fallback = Devices.FirstOrDefault(d => d.IsDefault) ?? Devices.First();
+
+        if (preferResume)
+        {
+            StatusMessage = $"出力デバイスが切断されたため、'{fallback.Name}' に切り替えて再生を継続します。";
+        }
+
+        // SetOutputDeviceを伴うSelectedDeviceの変更により、再生中であった場合は位置を保持したまま自動で再生を継続する。
+        SelectedDevice = fallback;
     }
 
     private void OnCurrentTrackChanged(object? sender, EventArgs e)
@@ -666,5 +787,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
         playbackService.ErrorOccurred -= OnPlaybackErrorOccurred;
         playlistService.CurrentTrackChanged -= OnCurrentTrackChanged;
         playlistService.Tracks.CollectionChanged -= OnTracksCollectionChanged;
+        deviceService.DevicesChanged -= OnDevicesChanged;
     }
 }

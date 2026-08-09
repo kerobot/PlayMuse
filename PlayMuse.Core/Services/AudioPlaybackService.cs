@@ -23,6 +23,11 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
         public const int UnsupportedFormat = -2004287480;
         public const int DeviceInUse = -2004287478;
         public const int ExclusiveModeNotAllowed = -2004287474;
+
+        /// <summary>
+        /// AUDCLNT_E_DEVICE_INVALIDATED。出力デバイスの切断・無効化を示す。
+        /// </summary>
+        public const int DeviceInvalidated = -2004287484;
     }
 
     private WaveStream? reader;
@@ -123,6 +128,14 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
     /// </summary>
     private bool TryLoadReader(Track track)
     {
+        if (!File.Exists(track.FilePath))
+        {
+            reader = null;
+            State = PlaybackState.Stopped;
+            RaiseError($"'{track.FileName}' が見つかりません。ファイルが削除または移動された可能性があります。", null, AudioErrorKind.TrackUnavailable);
+            return false;
+        }
+
         try
         {
             // WAVE_FORMAT_EXTENSIBLE（24bit/32bit float 等の高解像度WAVで一般的）は、
@@ -143,7 +156,7 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
             reader = null;
             DeleteNormalizedTempWavIfAny();
             State = PlaybackState.Stopped;
-            RaiseError($"'{track.FileName}' を読み込めませんでした。対応していないファイル形式か、ファイルが破損している可能性があります。", ex);
+            RaiseError($"'{track.FileName}' を読み込めませんでした。対応していないファイル形式か、ファイルが破損している可能性があります。", ex, AudioErrorKind.TrackUnavailable);
             return false;
         }
     }
@@ -172,7 +185,7 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
         catch (Exception ex)
         {
             State = PlaybackState.Stopped;
-            RaiseError("再生を開始できませんでした。", ex);
+            RaiseError("再生を開始できませんでした。", ex, ClassifyOutputException(ex));
         }
     }
 
@@ -283,9 +296,17 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
         catch (Exception ex)
         {
             State = PlaybackState.Stopped;
-            RaiseError("出力デバイスの切り替えに失敗しました。", ex);
+            RaiseError("出力デバイスの切り替えに失敗しました。", ex, ClassifyOutputException(ex));
         }
     }
+
+    /// <summary>
+    /// 出力関連の例外がデバイス切断（AUDCLNT_E_DEVICE_INVALIDATED）に起因するかを判定する。
+    /// </summary>
+    private static AudioErrorKind ClassifyOutputException(Exception ex) =>
+        ex is System.Runtime.InteropServices.COMException comEx && comEx.HResult == ExclusiveModeHResult.DeviceInvalidated
+            ? AudioErrorKind.DeviceDisconnected
+            : AudioErrorKind.Playback;
 
     private void InitializeOutput()
     {
@@ -496,7 +517,7 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
 
         if (e.Exception is not null)
         {
-            RaiseError("再生デバイスとの通信中にエラーが発生しました。", e.Exception);
+            RaiseError("再生デバイスとの通信中にエラーが発生しました。", e.Exception, ClassifyOutputException(e.Exception));
             return;
         }
 
@@ -509,9 +530,9 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
         }
     }
 
-    private void RaiseError(string message, Exception? exception = null)
+    private void RaiseError(string message, Exception? exception = null, AudioErrorKind kind = AudioErrorKind.Playback)
     {
-        ErrorOccurred?.Invoke(this, new AudioErrorEventArgs(message, exception));
+        ErrorOccurred?.Invoke(this, new AudioErrorEventArgs(message, exception, kind));
     }
 
     private static MMDevice ResolveDevice(AudioDeviceInfo? deviceInfo)
