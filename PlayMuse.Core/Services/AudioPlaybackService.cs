@@ -58,8 +58,9 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
                 return;
             }
 
+            var oldState = state;
             state = value;
-            logger.LogDebug("再生状態が変化しました: {OldState} -> {NewState}", state, value);
+            logger.LogDebug("再生状態が変化しました: {OldState} -> {NewState}", oldState, value);
             StateChanged?.Invoke(this, value);
         }
     }

@@ -2,6 +2,7 @@
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Threading;
 using PlayMuse.Core.Models;
 using PlayMuse.Core.ViewModels;
@@ -14,12 +15,17 @@ namespace PlayMuse;
 public partial class MainWindow : Window
 {
     private const string TrackDragFormat = "PlayMuse.Track";
+    private const double AutoScrollEdgeSize = 40;
+    private const double AutoScrollStep = 16;
 
     private readonly MainViewModel viewModel;
     private readonly DispatcherTimer positionTimer;
+    private readonly DispatcherTimer autoScrollTimer;
     private Point? dragStartPoint;
     private Track? draggingTrack;
     private DropIndicatorAdorner? dropIndicatorAdorner;
+    private ScrollViewer? autoScrollViewer;
+    private double autoScrollDirection;
 
     public MainWindow(MainViewModel viewModel)
     {
@@ -34,10 +40,17 @@ public partial class MainWindow : Window
         };
         positionTimer.Tick += (_, _) => viewModel.RefreshPosition();
 
+        autoScrollTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(50),
+        };
+        autoScrollTimer.Tick += (_, _) => autoScrollViewer?.ScrollToVerticalOffset(autoScrollViewer.VerticalOffset + autoScrollDirection);
+
         Loaded += (_, _) => positionTimer.Start();
         Closed += (_, _) =>
         {
             positionTimer.Stop();
+            autoScrollTimer.Stop();
             viewModel.Dispose();
         };
     }
@@ -63,27 +76,34 @@ public partial class MainWindow : Window
             e.Effects = DragDropEffects.Move;
             var (_, lineY) = GetDropTarget(listBox, e);
             ShowDropIndicator(listBox, lineY);
+            UpdateAutoScroll(listBox, e);
         }
         else if (e.Data.GetDataPresent(DataFormats.FileDrop))
         {
             e.Effects = DragDropEffects.Copy;
             RemoveDropIndicator();
+            StopAutoScroll();
         }
         else
         {
             e.Effects = DragDropEffects.None;
             RemoveDropIndicator();
+            StopAutoScroll();
         }
 
         e.Handled = true;
     }
 
     private void TrackList_DragLeave(object sender, DragEventArgs e)
-        => RemoveDropIndicator();
+    {
+        RemoveDropIndicator();
+        StopAutoScroll();
+    }
 
     private void TrackList_Drop(object sender, DragEventArgs e)
     {
         RemoveDropIndicator();
+        StopAutoScroll();
         viewModel.DraggingTrack = null;
 
         if (e.Data.GetDataPresent(TrackDragFormat))
@@ -148,7 +168,66 @@ public partial class MainWindow : Window
         {
             viewModel.DraggingTrack = null;
             RemoveDropIndicator();
+            StopAutoScroll();
         }
+    }
+
+    /// <summary>
+    /// ドラッグ中のマウス位置がリスト上端・下端付近にある場合、自動スクロールを開始する。
+    /// </summary>
+    private void UpdateAutoScroll(ListBox listBox, DragEventArgs e)
+    {
+        var scrollViewer = FindScrollViewer(listBox);
+        if (scrollViewer is null)
+        {
+            StopAutoScroll();
+            return;
+        }
+
+        var position = e.GetPosition(scrollViewer);
+        if (position.Y < AutoScrollEdgeSize)
+        {
+            autoScrollDirection = -AutoScrollStep;
+        }
+        else if (position.Y > scrollViewer.ActualHeight - AutoScrollEdgeSize)
+        {
+            autoScrollDirection = AutoScrollStep;
+        }
+        else
+        {
+            StopAutoScroll();
+            return;
+        }
+
+        autoScrollViewer = scrollViewer;
+        autoScrollTimer.Start();
+    }
+
+    private void StopAutoScroll()
+    {
+        autoScrollTimer.Stop();
+        autoScrollViewer = null;
+        autoScrollDirection = 0;
+    }
+
+    private static ScrollViewer? FindScrollViewer(DependencyObject parent)
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is ScrollViewer scrollViewer)
+            {
+                return scrollViewer;
+            }
+
+            var result = FindScrollViewer(child);
+            if (result is not null)
+            {
+                return result;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>
