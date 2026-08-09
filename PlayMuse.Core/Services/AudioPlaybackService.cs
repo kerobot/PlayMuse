@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
 using PlayMuse.Core.Models;
@@ -30,6 +31,7 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
         public const int DeviceInvalidated = -2004287484;
     }
 
+    private readonly ILogger<AudioPlaybackService> logger;
     private WaveStream? reader;
     private PcmVolumeProvider? volumeProvider;
     private WasapiOut? output;
@@ -40,6 +42,11 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
     private bool isUserStopped;
     private string? normalizedTempWavPath;
     private Track? pendingTrack;
+
+    public AudioPlaybackService(ILogger<AudioPlaybackService>? logger = null)
+    {
+        this.logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<AudioPlaybackService>.Instance;
+    }
 
     public PlaybackState State
     {
@@ -52,6 +59,7 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
             }
 
             state = value;
+            logger.LogDebug("再生状態が変化しました: {OldState} -> {NewState}", state, value);
             StateChanged?.Invoke(this, value);
         }
     }
@@ -226,6 +234,7 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
             return;
         }
 
+        logger.LogInformation("出力デバイスが変更されました: {DeviceName} ({DeviceId})", device.Name, device.Id);
         OutputDevice = device;
         ReinitializeOutputPreservingState();
     }
@@ -532,6 +541,7 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
 
     private void RaiseError(string message, Exception? exception = null, AudioErrorKind kind = AudioErrorKind.Playback)
     {
+        logger.LogError(exception, "再生エラーが発生しました ({Kind}): {Message}", kind, message);
         ErrorOccurred?.Invoke(this, new AudioErrorEventArgs(message, exception, kind));
     }
 

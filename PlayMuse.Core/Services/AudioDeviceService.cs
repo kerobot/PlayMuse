@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Microsoft.Extensions.Logging;
 using NAudio.CoreAudioApi;
 using NAudio.CoreAudioApi.Interfaces;
 using PlayMuse.Core.Models;
@@ -13,18 +14,22 @@ namespace PlayMuse.Core.Services;
 public sealed class AudioDeviceService : IAudioDeviceService, IMMNotificationClient, IDisposable
 {
     private readonly MMDeviceEnumerator notificationEnumerator = new();
+    private readonly ILogger<AudioDeviceService> logger;
     private bool isNotificationRegistered;
 
-    public AudioDeviceService()
+    public AudioDeviceService(ILogger<AudioDeviceService>? logger = null)
     {
+        this.logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<AudioDeviceService>.Instance;
+
         try
         {
             notificationEnumerator.RegisterEndpointNotificationCallback(this);
             isNotificationRegistered = true;
         }
-        catch (COMException)
+        catch (COMException ex)
         {
             // 通知の登録に失敗しても、デバイス列挙自体は引き続き利用できるため致命的ではない。
+            this.logger.LogWarning(ex, "デバイス変更通知の登録に失敗しました。");
         }
     }
 
@@ -85,17 +90,30 @@ public sealed class AudioDeviceService : IAudioDeviceService, IMMNotificationCli
         }
     }
 
-    void IMMNotificationClient.OnDeviceStateChanged(string deviceId, DeviceState newState) => RaiseDevicesChanged();
+    void IMMNotificationClient.OnDeviceStateChanged(string deviceId, DeviceState newState)
+    {
+        logger.LogDebug("デバイスの状態が変化しました: {DeviceId} -> {NewState}", deviceId, newState);
+        RaiseDevicesChanged();
+    }
 
-    void IMMNotificationClient.OnDeviceAdded(string deviceId) => RaiseDevicesChanged();
+    void IMMNotificationClient.OnDeviceAdded(string deviceId)
+    {
+        logger.LogDebug("デバイスが追加されました: {DeviceId}", deviceId);
+        RaiseDevicesChanged();
+    }
 
-    void IMMNotificationClient.OnDeviceRemoved(string deviceId) => RaiseDevicesChanged();
+    void IMMNotificationClient.OnDeviceRemoved(string deviceId)
+    {
+        logger.LogDebug("デバイスが削除されました: {DeviceId}", deviceId);
+        RaiseDevicesChanged();
+    }
 
     void IMMNotificationClient.OnDefaultDeviceChanged(DataFlow flow, Role role, string defaultDeviceId)
     {
         // 再生(Render)側の既定デバイス変更のみを対象とする。
         if (flow == DataFlow.Render)
         {
+            logger.LogInformation("既定出力デバイスが変更されました: {DeviceId}", defaultDeviceId);
             RaiseDevicesChanged();
         }
     }
@@ -118,9 +136,10 @@ public sealed class AudioDeviceService : IAudioDeviceService, IMMNotificationCli
             {
                 notificationEnumerator.UnregisterEndpointNotificationCallback(this);
             }
-            catch (COMException)
+            catch (COMException ex)
             {
                 // 破棄時の解除失敗は無視する。
+                logger.LogWarning(ex, "デバイス変更通知の解除に失敗しました。");
             }
         }
 

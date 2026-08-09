@@ -1,5 +1,6 @@
 ﻿using System.Windows;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using PlayMuse.Core.Services;
 using PlayMuse.Core.ViewModels;
 using PlayMuse.Services;
@@ -45,6 +46,11 @@ public partial class App : Application
 
     private static void ConfigureServices(IServiceCollection services)
     {
+        services.AddLogging(builder =>
+        {
+            builder.AddDebug();
+            builder.SetMinimumLevel(LogLevel.Debug);
+        });
         services.AddSingleton<IAudioDeviceService, AudioDeviceService>();
         services.AddSingleton<IAudioPlaybackService, AudioPlaybackService>();
         services.AddSingleton<IPlaylistService, PlaylistService>();
