@@ -350,12 +350,13 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
         {
             var fileFormat = reader!.WaveFormat;
 
-            System.Diagnostics.Debug.WriteLine(
-                $"[InitializeOutputCore] 排他モード: ファイル={fileFormat.SampleRate}Hz {fileFormat.BitsPerSample}bit {fileFormat.Channels}ch {fileFormat.Encoding}" +
-                (fileFormat is WaveFormatExtensible fe ? $" SubFormat={fe.SubFormat}" : ""));
+            logger.LogDebug(
+                "[InitializeOutputCore] 排他モード: ファイル={SampleRate}Hz {BitsPerSample}bit {Channels}ch {Encoding}{SubFormat}",
+                fileFormat.SampleRate, fileFormat.BitsPerSample, fileFormat.Channels, fileFormat.Encoding,
+                fileFormat is WaveFormatExtensible fe ? $" SubFormat={fe.SubFormat}" : "");
 
             // デバイスが対応しているフォーマット候補を列挙してデバッグ出力
-            LogSupportedDeviceFormats(currentMMDevice!, fileFormat.Channels);
+            LogSupportedDeviceFormats(logger, currentMMDevice!, fileFormat.Channels);
 
             // ファイルのフォーマットを排他モードでデバイスが直接サポートするか確認（ビットパーフェクト判定）。
             // WASAPI排他モードは、16bit/1〜2chの標準WAVEFORMATEX以外（24bit等）では
@@ -364,32 +365,32 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
             var bitPerfectFormat = ResolveBitPerfectFormat(currentMMDevice!, fileFormat);
             bool isBitPerfect = bitPerfectFormat is not null;
 
-            System.Diagnostics.Debug.WriteLine(
-                $"[InitializeOutputCore] ビットパーフェクト判定: {isBitPerfect}" +
-                $" ({fileFormat.SampleRate}Hz {fileFormat.BitsPerSample}bit {fileFormat.Channels}ch {fileFormat.Encoding})");
+            logger.LogDebug(
+                "[InitializeOutputCore] ビットパーフェクト判定: {IsBitPerfect} ({SampleRate}Hz {BitsPerSample}bit {Channels}ch {Encoding})",
+                isBitPerfect, fileFormat.SampleRate, fileFormat.BitsPerSample, fileFormat.Channels, fileFormat.Encoding);
 
             if (isBitPerfect)
             {
                 // ファイルフォーマット（またはそのExtensible相当）をそのまま出力（リサンプリング不要）
-                System.Diagnostics.Debug.WriteLine(
-                    $"[InitializeOutputCore] ビットパーフェクト再生: {fileFormat.SampleRate}Hz {fileFormat.BitsPerSample}bit {fileFormat.Channels}ch {fileFormat.Encoding}");
+                logger.LogDebug(
+                    "[InitializeOutputCore] ビットパーフェクト再生: {SampleRate}Hz {BitsPerSample}bit {Channels}ch {Encoding}",
+                    fileFormat.SampleRate, fileFormat.BitsPerSample, fileFormat.Channels, fileFormat.Encoding);
                 OutputFormat = bitPerfectFormat;
             }
             else
             {
                 // ビットパーフェクト不可: デバイスが対応する最も近しいフォーマットを選択してリサンプリング
-                System.Diagnostics.Debug.WriteLine(
-                    "[InitializeOutputCore] ビットパーフェクト不可: デバイス対応フォーマットを探索");
+                logger.LogDebug("[InitializeOutputCore] ビットパーフェクト不可: デバイス対応フォーマットを探索");
 
                 resampler?.Dispose();
                 var bestDeviceFormat = FindBestSupportedFormat(currentMMDevice!, fileFormat);
 
                 if (bestDeviceFormat is not null)
                 {
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[InitializeOutputCore] リサンプリング: {fileFormat.SampleRate}Hz {fileFormat.BitsPerSample}bit {fileFormat.Encoding} -> " +
-                        $"{bestDeviceFormat.SampleRate}Hz {bestDeviceFormat.BitsPerSample}bit {bestDeviceFormat.Encoding}" +
-                        (bestDeviceFormat is WaveFormatExtensible be ? $" SubFormat={be.SubFormat}" : ""));
+                    logger.LogDebug(
+                        "[InitializeOutputCore] リサンプリング: {SourceSampleRate}Hz {SourceBitsPerSample}bit {SourceEncoding} -> {TargetSampleRate}Hz {TargetBitsPerSample}bit {TargetEncoding}",
+                        fileFormat.SampleRate, fileFormat.BitsPerSample, fileFormat.Encoding,
+                        bestDeviceFormat.SampleRate, bestDeviceFormat.BitsPerSample, bestDeviceFormat.Encoding);
 
                     resampler = new MediaFoundationResampler(volumeProvider, bestDeviceFormat);
                     waveProvider = resampler;
@@ -400,8 +401,9 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
                 {
                     // 対応フォーマットが見つからない場合はMixFormat（デバイスのネイティブ共有フォーマット）へリサンプリング
                     var mixFormat = currentMMDevice!.AudioClient.MixFormat;
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[InitializeOutputCore] 対応フォーマットなし: MixFormatへリサンプリング {fileFormat.SampleRate}Hz -> {mixFormat.SampleRate}Hz");
+                    logger.LogDebug(
+                        "[InitializeOutputCore] 対応フォーマットなし: MixFormatへリサンプリング {SourceSampleRate}Hz -> {TargetSampleRate}Hz",
+                        fileFormat.SampleRate, mixFormat.SampleRate);
 
                     resampler = new MediaFoundationResampler(volumeProvider, mixFormat);
                     waveProvider = resampler;
@@ -557,14 +559,14 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
     /// 指定デバイスが排他モードで対応しているサンプルレート・チャンネル数・エンコーディングの組み合わせを
     /// デバッグ出力に列挙する。PCM / IEEE Float / WaveFormatExtensible(PCM・Float) を網羅的に試す。
     /// </summary>
-    private static void LogSupportedDeviceFormats(MMDevice device, int fileChannels)
+    private static void LogSupportedDeviceFormats(ILogger logger, MMDevice device, int fileChannels)
     {
         int[] sampleRates = [384000, 352800, 192000, 176400, 96000, 88200, 48000, 44100];
         int[] bitsPerSampleList = [32, 24, 16];
         // ファイルのチャンネル数を優先しつつ、一般的なチャンネル数を網羅する
         int[] channelCandidates = [.. new[] { fileChannels, 1, 2, 6, 8 }.Distinct()];
 
-        System.Diagnostics.Debug.WriteLine("[InitializeOutputCore] デバイス対応フォーマット一覧:");
+        logger.LogDebug("[InitializeOutputCore] デバイス対応フォーマット一覧:");
 
         foreach (var channels in channelCandidates)
         {
@@ -573,19 +575,19 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
                 foreach (var bitsPerSample in bitsPerSampleList)
                 {
                     // PCM (WaveFormat)
-                    TryLogFormat(device, new WaveFormat(sampleRate, bitsPerSample, channels),
+                    TryLogFormat(logger, device, new WaveFormat(sampleRate, bitsPerSample, channels),
                         "PCM", channels, sampleRate, bitsPerSample);
 
                     // WaveFormatExtensible:
                     //   16/24bit → SubFormat=PCM、32bit → SubFormat=IEEE Float（NAudio の仕様による）
-                    TryLogFormat(device, new WaveFormatExtensible(sampleRate, bitsPerSample, channels),
+                    TryLogFormat(logger, device, new WaveFormatExtensible(sampleRate, bitsPerSample, channels),
                         bitsPerSample == 32 ? "Extensible/Float" : "Extensible/PCM",
                         channels, sampleRate, bitsPerSample);
 
                     if (bitsPerSample == 32)
                     {
                         // IEEE Float (WaveFormat)
-                        TryLogFormat(device, WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, channels),
+                        TryLogFormat(logger, device, WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, channels),
                             "IeeeFloat", channels, sampleRate, bitsPerSample);
                     }
                 }
@@ -596,15 +598,14 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
     /// <summary>
     /// デバイスが指定フォーマットを排他モードでサポートしていればデバッグ出力する。
     /// </summary>
-    private static void TryLogFormat(MMDevice device, WaveFormat format, string label,
+    private static void TryLogFormat(ILogger logger, MMDevice device, WaveFormat format, string label,
         int channels, int sampleRate, int bitsPerSample)
     {
         try
         {
             if (device.AudioClient.IsFormatSupported(AudioClientShareMode.Exclusive, format))
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"  対応: {sampleRate}Hz {bitsPerSample}bit {channels}ch ({label})");
+                logger.LogDebug("  対応: {SampleRate}Hz {BitsPerSample}bit {Channels}ch ({Label})", sampleRate, bitsPerSample, channels, label);
             }
         }
         catch

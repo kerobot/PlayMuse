@@ -305,10 +305,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             await metadataService.ApplyMetadataAsync(track);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             dispatcherService.Invoke(() => StatusMessage = $"'{track.FileName}' のタグ読み取りに失敗しました。");
-            _ = ex;
         }
     }
 
