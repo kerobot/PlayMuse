@@ -25,7 +25,8 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
         public const int ExclusiveModeNotAllowed = -2004287474;
     }
 
-    private AudioFileReader? reader;
+    private WaveStream? reader;
+    private PcmVolumeProvider? volumeProvider;
     private WasapiOut? output;
     private MMDevice? currentMMDevice;
     private MediaFoundationResampler? resampler;
@@ -74,7 +75,11 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
         set
         {
             desiredVolume = Math.Clamp(value, 0f, 1f);
-            reader?.Volume = desiredVolume;
+
+            if (volumeProvider is not null)
+            {
+                volumeProvider.Volume = desiredVolume;
+            }
         }
     }
 
@@ -121,14 +126,13 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
         try
         {
             // WAVE_FORMAT_EXTENSIBLE（24bit/32bit float 等の高解像度WAVで一般的）は、
-            // AudioFileReader が内部でACM変換を試みて失敗することがあるため、事前に正規化する。
+            // 一部の読み込み経路でACM変換の失敗を招くことがあるため、事前に正規化する。
             var normalizedPath = WavFormatNormalizer.NormalizeIfNeeded(track.FilePath);
             normalizedTempWavPath = normalizedPath;
 
-            var newReader = new AudioFileReader(normalizedPath ?? track.FilePath)
-            {
-                Volume = desiredVolume,
-            };
+            // AudioFileReaderは内部で必ずIEEE Float 32bitへ変換してしまいビットパーフェクトを
+            // 損なうため使用せず、元のビット深度・サンプルレートを保持するWaveStreamを直接生成する。
+            var newReader = NativeAudioFileReaderFactory.Create(normalizedPath ?? track.FilePath);
 
             reader = newReader;
             track.Duration = newReader.TotalTime;
@@ -305,7 +309,10 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
 
     private void InitializeOutputCore(AudioClientShareMode shareModeNative)
     {
-        IWaveProvider waveProvider = reader!;
+        // PcmVolumeProviderは音量が最大(1.0)の間は無加工でパススルーするため、
+        // ここでラップしてもビットパーフェクト再生を妨げない。
+        volumeProvider = new PcmVolumeProvider(reader!) { Volume = desiredVolume };
+        IWaveProvider waveProvider = volumeProvider;
         IsResampling = false;
         OutputFormat = null;
 
@@ -320,9 +327,12 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
             // デバイスが対応しているフォーマット候補を列挙してデバッグ出力
             LogSupportedDeviceFormats(currentMMDevice!, fileFormat.Channels);
 
-            // ファイルのフォーマットを排他モードでデバイスが直接サポートするか確認（ビットパーフェクト判定）
-            // サンプルレート・チャンネル数・エンコーディング（SubFormat含む）がすべて一致する場合にビットパーフェクトとなる
-            bool isBitPerfect = IsFormatSupportedSafe(currentMMDevice!, fileFormat);
+            // ファイルのフォーマットを排他モードでデバイスが直接サポートするか確認（ビットパーフェクト判定）。
+            // WASAPI排他モードは、16bit/1〜2chの標準WAVEFORMATEX以外（24bit等）では
+            // WAVEFORMATEXTENSIBLEでの指定を要求するデバイスが多いため、
+            // ファイルそのままの形式とExtensible相当の形式の両方を試す。
+            var bitPerfectFormat = ResolveBitPerfectFormat(currentMMDevice!, fileFormat);
+            bool isBitPerfect = bitPerfectFormat is not null;
 
             System.Diagnostics.Debug.WriteLine(
                 $"[InitializeOutputCore] ビットパーフェクト判定: {isBitPerfect}" +
@@ -330,10 +340,10 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
 
             if (isBitPerfect)
             {
-                // ファイルフォーマットをそのまま出力（リサンプリング不要）
+                // ファイルフォーマット（またはそのExtensible相当）をそのまま出力（リサンプリング不要）
                 System.Diagnostics.Debug.WriteLine(
                     $"[InitializeOutputCore] ビットパーフェクト再生: {fileFormat.SampleRate}Hz {fileFormat.BitsPerSample}bit {fileFormat.Channels}ch {fileFormat.Encoding}");
-                OutputFormat = fileFormat;
+                OutputFormat = bitPerfectFormat;
             }
             else
             {
@@ -351,7 +361,7 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
                         $"{bestDeviceFormat.SampleRate}Hz {bestDeviceFormat.BitsPerSample}bit {bestDeviceFormat.Encoding}" +
                         (bestDeviceFormat is WaveFormatExtensible be ? $" SubFormat={be.SubFormat}" : ""));
 
-                    resampler = new MediaFoundationResampler(reader, bestDeviceFormat);
+                    resampler = new MediaFoundationResampler(volumeProvider, bestDeviceFormat);
                     waveProvider = resampler;
                     IsResampling = true;
                     OutputFormat = bestDeviceFormat;
@@ -363,7 +373,7 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
                     System.Diagnostics.Debug.WriteLine(
                         $"[InitializeOutputCore] 対応フォーマットなし: MixFormatへリサンプリング {fileFormat.SampleRate}Hz -> {mixFormat.SampleRate}Hz");
 
-                    resampler = new MediaFoundationResampler(reader, mixFormat);
+                    resampler = new MediaFoundationResampler(volumeProvider, mixFormat);
                     waveProvider = resampler;
                     IsResampling = true;
                     OutputFormat = mixFormat;
@@ -467,6 +477,8 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
 
         resampler?.Dispose();
         resampler = null;
+
+        volumeProvider = null;
 
         currentMMDevice?.Dispose();
         currentMMDevice = null;
@@ -619,6 +631,36 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
                         return candidate;
                     }
                 }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 指定フォーマットが排他モードでビットパーフェクト再生可能かを判定し、
+    /// 実際にデバイスへ渡すべき<see cref="WaveFormat"/>を返す（対応不可の場合は null）。
+    /// </summary>
+    /// <remarks>
+    /// WASAPI排他モードでは、16bit/1〜2chの標準的な組み合わせ以外（24bit等）は
+    /// WAVEFORMATEXTENSIBLE構造体での指定が必須というAPI仕様がある。
+    /// <see cref="MediaFoundationReader"/> 等が返す<see cref="WaveFormat"/>は非Extensibleの
+    /// 場合があるため、それがそのまま拒否された場合はExtensible相当の形式でも試す。
+    /// サンプルデータ自体は変わらないため、どちらが採用されてもビットパーフェクト性は保たれる。
+    /// </remarks>
+    private static WaveFormat? ResolveBitPerfectFormat(MMDevice device, WaveFormat fileFormat)
+    {
+        if (IsFormatSupportedSafe(device, fileFormat))
+        {
+            return fileFormat;
+        }
+
+        if (fileFormat is not WaveFormatExtensible)
+        {
+            var extensible = new WaveFormatExtensible(fileFormat.SampleRate, fileFormat.BitsPerSample, fileFormat.Channels);
+            if (IsFormatSupportedSafe(device, extensible))
+            {
+                return extensible;
             }
         }
 
