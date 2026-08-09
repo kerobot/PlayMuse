@@ -1,1 +1,141 @@
 # PlayMuse
+
+Windows 向けのビットパーフェクト再生を追求した WPF 製音楽プレーヤーです。
+WASAPI 排他モードを活用し、ファイルが持つ本来のビット深度・サンプルレートを一切加工せずにオーディオデバイスへ届けることを目標に設計されています。
+
+## 概要
+
+PlayMuse は、MP3 / FLAC / WAV / AAC / M4A といった主要な音楽ファイル形式を再生できるシンプルな WPF デスクトップアプリケーションです。
+単なる再生機能の提供にとどまらず、「ファイルに記録された音をそのまま出力する」ことにこだわり、NAudio の WASAPI 排他モードと独自のフォーマット解決ロジックを組み合わせることで、OS のミキサーによるリサンプリングやビット深度変換を避けるビットパーフェクト再生を実現しています。
+
+## 利用技術
+
+- **.NET 10 / WPF** — UI とアプリケーション基盤
+- **CommunityToolkit.Mvvm** — MVVM 実装（`ObservableProperty` / `RelayCommand` などのソースジェネレーター）
+- **NAudio** — オーディオ入出力全般
+  - `NAudio.Wave`（`WaveFileReader` / `Mp3FileReader` / `MediaFoundationReader` / `MediaFoundationResampler`）によるデコード
+  - `NAudio.CoreAudioApi`（`WasapiOut` / `MMDeviceEnumerator` / `MMDevice`）による WASAPI 出力とデバイス列挙
+- **Media Foundation** — FLAC / AAC / M4A のデコードとリサンプリング
+- **TagLibSharp** — ID3 (MP3) / Vorbis Comment (FLAC) などのメタデータ・アルバムアートの読み取り
+- **xUnit** — ユニットテスト（`PlayMuse.Tests`）
+
+## アーキテクチャ
+
+- `PlayMuse.Core` — UI に依存しないコアロジック（サービス層・ViewModel・モデル）
+- `PlayMuse` — WPF によるビュー層（`MainWindow` / コンバーター / プラットフォーム固有サービス）
+- `PlayMuse.Tests` — `PlayMuse.Core` に対する単体テスト
+
+`IAudioPlaybackService` / `IAudioDeviceService` / `IPlaylistService` / `IMetadataService` / `ISettingsService` などのインターフェースを介してサービスを注入する構成になっており、WPF に依存する `IDispatcherService` / `IFileDialogService` はアプリ層で実装を差し替えられるようになっています。
+
+## 主な機能
+
+- MP3 / FLAC / WAV / AAC / M4A の再生
+- 再生・一時停止・停止・シーク・音量調整
+- プレイリスト管理（トラックの追加・削除・並び替え、D&D による曲順変更・ファイル追加）
+- プレイリストの保存／読み込みと、前回開いていたプレイリストの自動復元
+- ループ再生（プレイリスト末尾で先頭へ、先頭で `Previous` を押すと末尾へ移動）
+- 出力デバイスの一覧表示・切り替え（USB DAC なども含めた WASAPI レンダーエンドポイントを列挙）
+- 共有モード／排他モードの切り替え
+- デバイスの抜き差しや既定デバイス変更をリアルタイムに検知
+- ID3 / Vorbis Comment からのタイトル・アーティスト・アルバム名・アルバムアート取得
+- 再生中フォーマット（サンプルレート・ビット深度・チャンネル数・リサンプリングの有無）の可視化
+
+## 対応する音楽ファイル形式と、その扱いの違い
+
+`SupportedAudioFormats` で一元管理される対応形式ごとに、`NativeAudioFileReaderFactory` がデコード方式を切り替えています。
+
+| 形式 | デコード方法 | 特徴 |
+|---|---|---|
+| WAV | `WaveFileReader` | コンテナの PCM / IEEE Float データをそのまま読み取る。ロスレスかつ変換なし。 |
+| MP3 | `Mp3FileReader` | ACM/MediaFoundation 経由でデコードするが、結果は常に 16bit PCM 相当で返る（フォーマット自体が非可逆圧縮のため）。 |
+| FLAC / AAC / M4A | `MediaFoundationReader`（`RequestFloatOutput = false`） | Media Foundation のデコーダーを利用し、可能な限り元のビット深度の整数 PCM を要求する。 |
+
+### なぜ形式ごとに処理を分けているのか
+
+NAudio が提供する汎用の `AudioFileReader` は、内部で必ず IEEE Float 32bit の `ISampleProvider` パイプラインへ変換してしまいます。これは扱いやすい反面、24bit FLAC のような高解像度音源であっても一度 32bit float へ変換されるため、後段でビットパーフェクト判定を行うための「元のビット深度」という情報が失われてしまいます。
+
+そのため PlayMuse では `AudioFileReader` を使わず、形式ごとに最適な `WaveStream` を直接選択する `NativeAudioFileReaderFactory` を実装しています。
+
+- WAV はコンテナに記録された PCM/Float をそのまま扱えるため `WaveFileReader` で十分
+- MP3 は圧縮アルゴリズム上、デコード後は 16bit PCM 相当にしかならない
+- FLAC/AAC/M4A は Media Foundation の `RequestFloatOutput = false` によって、可能な限り元のビット深度（16bit / 24bit など）を保った整数 PCM としてデコードさせる
+
+さらに、24bit/32bit float を含む `WAVE_FORMAT_EXTENSIBLE` 形式の WAV は、環境によっては Audio Compression Manager (ACM) 経由の変換に失敗し `NoDriver calling acmFormatSuggest` 例外で再生できないことがあります。これに対応するため `WavFormatNormalizer` が事前にヘッダーを解析し、SubFormat が PCM/IEEE Float であれば非 Extensible 形式の一時ファイルへ書き換えることで、データ自体を変更せずに互換性の問題を回避しています。
+
+## ビットパーフェクト再生とは
+
+ビットパーフェクト再生とは、音楽ファイルに記録されたデジタルサンプル値を、リサンプリング・ビット深度変換・音量による波形加工などを一切行わずに、そのままオーディオデバイスへ送り届ける再生方式です。
+Windows の既定の音声パイプラインは、共有モードで動作する際にデバイスの共有フォーマットへ自動的にミキシング・リサンプリングを行うため、通常の再生ではファイルそのものの値がスピーカー／DAC まで届きません。ビットパーフェクト再生を行うには、OS のミキサーを経由しない専用の出力経路が必要です。
+
+### 再生環境の例で見るデジタル区間とアナログ区間
+
+例えば、以下のような構成でオーディオを再生する場合を考えます。
+
+```
+[Windows PC 上の PlayMuse]
+        │  USB (デジタル: PCM ビットストリーム)
+        ▼
+[Sound Blaster G8]  ← USB DAC / ヘッドホンアンプ
+        │  光デジタル (S/PDIF, デジタル: PCM ビットストリーム)
+        ▼
+[DENON RCD-M41]  ← DAC 内蔵レシーバー／CD レシーバー
+        │  スピーカーケーブル (アナログ: 電気信号 = 電圧の連続的な変化)
+        ▼
+[Denon SC-M41 / YAMAHA ウーファー]  ← スピーカー
+        │  空気振動 (アナログ: 音波)
+        ▼
+       耳
+```
+
+この構成では、**PlayMuse → Sound Blaster G8 → DENON RCD-M41 までがデジタル区間**です。USB や光デジタル (S/PDIF) で伝送されている間は、音は「0 と 1 の数値の列（PCM サンプル値）」として扱われています。
+**DENON RCD-M41 が内蔵 DAC でデジタル信号をアナログ電気信号に変換した以降、つまりスピーカーケーブルからスピーカーユニット・ウーファーまでがアナログ区間**です。ここから先は電圧の連続的な変化・音波として伝わるため、ケーブルの特性やアンプの回路、スピーカーの物理特性によって音質が変化しうる領域になります。
+
+### デジタルなのに劣化する可能性があるのはなぜか
+
+「デジタル伝送だから完全に劣化しない」というのは半分正しく、半分は誤りです。理論上、PCM サンプル値がビット単位で正確に伝送されれば劣化は起きません。しかし実際には、デジタル区間であっても次のような要因で「送り出す値そのもの」が変わってしまうことがあります。
+
+- **OS 側のミキシング／リサンプリング** — Windows の共有モードでは、複数アプリの音声をミキシングするために、内部で一旦共通のサンプルレート・ビット深度へ変換される。ファイルが 24bit/96kHz でも、共有フォーマットが 16bit/48kHz であればその時点でダウンコンバートされる。
+- **アプリ側でのフォーマット変換** — デコード時に不要な float 変換や、音量調整によるサンプル値の書き換えが加わると、たとえ数値上はわずかでも元のビット列とは異なる値になる。
+- **中間段（USB DAC 等）でのリサンプリング** — デバイス側が受け付けるフォーマットが 1 つに固定されている場合、そこへ変換されてから最終的な DAC チップに渡される。
+
+上記の Sound Blaster G8 や DENON RCD-M41 のように、USB・光デジタルで PCM ビットストリームを中継する機器を挟む構成では、**PlayMuse からデバイスへ渡す時点のサンプル値が、ファイル本来の値と完全に一致しているかどうか**が、最終的にスピーカーから出る音がどれだけ忠実かを左右します。つまり「デジタルだから何を送っても同じ」ではなく、経路上のどこかでリサンプリングやビット深度変換が挟まれば、その時点で元の音とは異なる値になってしまいます。
+
+だからこそ PlayMuse は、WASAPI 排他モードでデバイスが受け付け可能なフォーマットとファイルのフォーマットを完全一致させ、OS のミキサーやアプリ内の不要な変換を排除することで、**PC から最初のデジタル出力機器（この例では Sound Blaster G8）へ渡すサンプル値を、ファイルに記録された値と完全に一致させる**ことを目指しています。これにより、後段のアナログ変換（DAC）以降の音質は再生環境（アンプ・スピーカーケーブル・スピーカー）に委ねつつ、ソフトウェア側に起因する不要な劣化要因を排除できます。
+
+## PlayMuse でのビットパーフェクト再生の実現方法
+
+1. **WASAPI 排他モードの利用**
+   `AudioPlaybackService` は `WasapiOut` を排他モード (`AudioClientShareMode.Exclusive`) で初期化することで、OS のオーディオエンジン（ミキサー）をバイパスし、アプリが直接デバイスの入力バッファへ PCM データを書き込めるようにします。
+
+2. **フォーマット変換を伴わないデコード**
+   前述の `NativeAudioFileReaderFactory` により、ファイル固有のビット深度・サンプルレートを保持したまま `WaveStream` を取得します。
+
+3. **デバイスが対応する完全一致フォーマットの探索**
+   `InitializeOutputCore` は、ファイルのフォーマット（サンプルレート・ビット深度・チャンネル数・エンコーディング）とデバイスが排他モードで受け付け可能なフォーマットを比較する `ResolveBitPerfectFormat` を用い、`AreFormatsCompatible` で PCM/IEEE Float/`WaveFormatExtensible` の SubFormat 差異まで考慮した完全一致判定を行います。一致する場合は一切のフォーマット変換を行わずそのまま出力し、ビットパーフェクト再生を成立させます。
+
+4. **一致フォーマットがない場合のみリサンプリング**
+   デバイスが該当フォーマットに対応していない場合に限り、`MediaFoundationResampler` を使ってデバイスが対応する最も近いフォーマット（共有モードなら `MixFormat`）へ変換します。この場合は `IsResampling` フラグを立て、UI 上でビットパーフェクトではないことが分かるようにしています。
+
+5. **ボリューム処理でも波形を破壊しない**
+   `PcmVolumeProvider` は音量が最大値（`BitPerfectThreshold = 0.999f` 以上）のときはサンプルに一切手を加えずスルーします。音量を下げた場合のみ、8/16/24/32bit PCM および IEEE Float のそれぞれに対応したスケーリング処理を行い、元のビット深度・エンコーディングを変えずに音量調整を実現します。
+
+6. **排他モード非対応時の安全なフォールバック**
+   デバイスや形式によっては排他モードでの初期化自体に失敗することがあります（`AUDCLNT_E_UNSUPPORTED_FORMAT` / `AUDCLNT_E_DEVICE_IN_USE` / `AUDCLNT_E_EXCLUSIVE_MODE_NOT_ALLOWED` など）。`InitializeOutput` はこれらの HResult を判定し、原因別のメッセージをユーザーに提示した上で自動的に共有モードへフォールバックし、再生自体は継続できるようにしています。
+
+## デバイス切り替え・排他モード切り替えへの対策
+
+- **デバイス列挙とホットプラグ検知**
+  `AudioDeviceService` は `MMDeviceEnumerator` でレンダーエンドポイントを列挙するとともに、`IMMNotificationClient` を実装してデバイスの追加・削除・状態変化・既定デバイス変更を監視し、`DevicesChanged` イベントで UI へ通知します。これにより USB DAC の抜き差しや Bluetooth 機器の接続にも追従できます。
+
+- **再生を継続したままのシームレスな切り替え**
+  `SetOutputDevice` / `SetShareMode` はどちらも `ReinitializeOutputPreservingState` を呼び出します。これは現在の再生状態と再生位置を保持したまま出力だけを再構築する処理で、切り替え前に再生中であればシーク位置を復元して再生を再開し、そうでなければ停止状態を維持します。
+
+- **デバイス切断時のエラー分類と復帰**
+  出力先デバイスが切断された場合に発生する `AUDCLNT_E_DEVICE_INVALIDATED` を `ClassifyOutputException` で個別に判定し、`AudioErrorKind.DeviceDisconnected` として一般的な再生エラーと区別して通知します。ViewModel 側ではこの種別を見て、既定デバイスへの自動切り替えなど適切なリカバリー処理を行えるようにしています。
+
+- **排他モード確保の競合への配慮**
+  排他モードは同時に 1 つのアプリケーションしか使用できません。他アプリがデバイスを排他使用中の場合や、デバイスが排他モードでの当該フォーマットに対応していない場合は、`BuildExclusiveModeFailureMessage` が原因を判定してわかりやすいメッセージを表示しつつ、共有モードでの再生に自動フォールバックすることで、ユーザーが手動で設定を変更しなくても再生が止まらないようにしています。
+
+## テスト
+
+`PlayMuse.Tests` では ViewModel やサービスの単体テストを xUnit で実装しています。ループ再生の伝播、プレイリストの読み込み結果、デバイス切り替え時の挙動など、コアロジックの振る舞いを検証しています。
