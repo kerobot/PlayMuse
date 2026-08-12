@@ -85,7 +85,7 @@
             <Button DockPanel.Dock="Left" Content="💾" Padding="8,4" Margin="4,0,0,0"
                     ToolTip="プレイリストを保存"
                     Command="{Binding SavePlaylistCommand}"/>
-            <ComboBox DockPanel.Dock="Right" Width="180"
+            <ComboBox DockPanel.Dock="Right" Width="240"
                       ItemsSource="{Binding Devices}"
                       SelectedItem="{Binding SelectedDevice}">
                 <ComboBox.ItemTemplate>
