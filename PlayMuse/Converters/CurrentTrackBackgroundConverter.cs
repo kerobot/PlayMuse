@@ -12,7 +12,7 @@ namespace PlayMuse.Converters;
 /// </summary>
 public class CurrentTrackBackgroundConverter : IMultiValueConverter
 {
-    private static readonly Brush HighlightBrush = new SolidColorBrush(Color.FromRgb(0xDD, 0xEB, 0xFF));
+    private static readonly Brush HighlightBrush = new SolidColorBrush(Color.FromRgb(0x5A, 0x33, 0x0E));
 
     public object Convert(object?[] values, Type targetType, object? parameter, CultureInfo culture)
     {

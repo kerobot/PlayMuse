@@ -5,8 +5,14 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:PlayMuse"
         xmlns:converters="clr-namespace:PlayMuse.Converters"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         mc:Ignorable="d"
-        Title="PlayMuse" Height="560" Width="560" MinHeight="560" MinWidth="560">
+        Title="PlayMuse" Height="580" Width="560" MinHeight="580" MinWidth="560"
+        WindowStyle="None" ResizeMode="CanResizeWithGrip" AllowsTransparency="False"
+        Background="{StaticResource MetalPanelBrush}">
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="32" ResizeBorderThickness="6" CornerRadius="0" GlassFrameThickness="0"/>
+    </shell:WindowChrome.WindowChrome>
     <Window.Resources>
         <converters:TimeSpanToSecondsConverter x:Key="TimeSpanToSecondsConverter"/>
         <converters:TimeSpanToStringConverter x:Key="TimeSpanToStringConverter"/>
@@ -35,8 +41,10 @@
             </Style.Triggers>
         </Style>
     </Window.Resources>
-    <Grid Margin="12">
+    <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+    <Grid>
         <Grid.RowDefinitions>
+            <RowDefinition Height="32"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
@@ -46,8 +54,29 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
+        <!-- カスタムタイトルバー -->
+        <Grid Grid.Row="0" Background="{StaticResource TitleBarBrush}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <Ellipse Grid.Column="0" Width="8" Height="8" Margin="10,0,6,0"
+                     VerticalAlignment="Center" Fill="{StaticResource LedGlowBrush}"/>
+            <TextBlock Grid.Column="1" Text="PLAYMUSE" VerticalAlignment="Center"
+                       Foreground="{StaticResource TextSecondaryBrush}"
+                       FontWeight="Bold" FontSize="11" Margin="2,0,0,0"
+                       shell:WindowChrome.IsHitTestVisibleInChrome="False"/>
+            <StackPanel Grid.Column="2" Orientation="Horizontal" shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                <Button Content="—" Width="32" Height="32" Padding="0" Background="Transparent" BorderThickness="0"
+                        Click="MinimizeButton_Click" ToolTip="最小化"/>
+                <Button Content="✕" Width="32" Height="32" Padding="0" Background="Transparent" BorderThickness="0"
+                        Click="CloseButton_Click" ToolTip="閉じる"/>
+            </StackPanel>
+        </Grid>
+
         <!-- ツールバー: ファイルを開く / 出力デバイス選択 / 排他モード切替 -->
-        <DockPanel Grid.Row="0" Margin="0,0,0,8" LastChildFill="False">
+        <DockPanel Grid.Row="1" Margin="12,8,12,8" LastChildFill="False">
             <Button DockPanel.Dock="Left" Content="OPEN" Padding="12,4"
                     Command="{Binding OpenFilesCommand}"/>
             <Button DockPanel.Dock="Left" Content="📂" Padding="8,4" Margin="4,0,0,0"
@@ -58,14 +87,19 @@
                     Command="{Binding SavePlaylistCommand}"/>
             <ComboBox DockPanel.Dock="Right" Width="180"
                       ItemsSource="{Binding Devices}"
-                      DisplayMemberPath="Name"
-                      SelectedItem="{Binding SelectedDevice}"/>
+                      SelectedItem="{Binding SelectedDevice}">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"/>
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
             <CheckBox DockPanel.Dock="Right" Content="EXCLUSIVE MODE" VerticalAlignment="Center" Margin="0,0,8,0"
                       IsChecked="{Binding IsExclusiveMode}"/>
         </DockPanel>
 
         <!-- プレイリスト -->
-        <ListBox Grid.Row="1"
+        <ListBox Grid.Row="2"
                  ItemsSource="{Binding Tracks}"
                  SelectedItem="{Binding SelectedTrack}"
                  BorderThickness="1"
@@ -113,7 +147,7 @@
                                    PreviewMouseLeftButtonDown="DragHandle_PreviewMouseLeftButtonDown"
                                    PreviewMouseMove="DragHandle_PreviewMouseMove"/>
                         <Border Grid.Column="1" Width="40" Height="40" Margin="0,0,8,0"
-                                Background="#DDDDDD" BorderBrush="#CCCCCC" BorderThickness="1">
+                                Background="{StaticResource PanelMidBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
                             <Image Source="{Binding AlbumArtData, Converter={StaticResource ByteArrayToImageSourceConverter}}"
                                    Stretch="UniformToFill"/>
                         </Border>
@@ -152,10 +186,11 @@
         </ListBox>
 
         <!-- オーディオ情報パネル -->
-        <Border Grid.Row="2" Margin="0,8,0,0" Padding="8" 
-                Background="#F5F5F5" BorderBrush="#CCCCCC" BorderThickness="1"
+        <Border Grid.Row="3" Margin="12,8,12,0" Padding="8" 
+                Background="{StaticResource PanelDarkBrush}" BorderBrush="{StaticResource AccentDimBrush}" BorderThickness="1"
                 Visibility="{Binding AudioInfoText, Converter={StaticResource NullToVisibilityConverter}}">
             <TextBlock Text="{Binding AudioInfoText}" 
+                       Foreground="{StaticResource AccentGlowBrush}"
                        FontFamily="Consolas, Courier New" 
                        FontSize="11" 
                        LineHeight="18"
@@ -163,7 +198,7 @@
         </Border>
 
         <!-- 再生中のトラック情報 -->
-        <Grid Grid.Row="3" Margin="0,8,0,0" Visibility="{Binding CurrentTrack, Converter={StaticResource NullToVisibilityConverter}}">
+        <Grid Grid.Row="4" Margin="12,8,12,0" Visibility="{Binding CurrentTrack, Converter={StaticResource NullToVisibilityConverter}}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
@@ -187,7 +222,7 @@
         </Grid>
 
         <!-- シーク -->
-        <Grid Grid.Row="4" Margin="0,8,0,0">
+        <Grid Grid.Row="5" Margin="12,8,12,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
@@ -206,7 +241,7 @@
         </Grid>
 
         <!-- 再生系トランスポート + 音量 -->
-        <Grid Grid.Row="5" Margin="0,8,0,0">
+        <Grid Grid.Row="6" Margin="12,8,12,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
@@ -224,7 +259,9 @@
         </Grid>
 
         <!-- ステータス -->
-        <TextBlock Grid.Row="6" Margin="0,8,0,0" Opacity="0.8" TextTrimming="CharacterEllipsis"
+        <TextBlock Grid.Row="7" Margin="12,8,12,10" Opacity="0.8" TextTrimming="CharacterEllipsis"
+                   Foreground="{StaticResource TextSecondaryBrush}"
                    Text="{Binding StatusMessage}"/>
     </Grid>
+    </Border>
 </Window>

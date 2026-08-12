@@ -10,7 +10,7 @@ namespace PlayMuse;
 /// </summary>
 internal sealed class DropIndicatorAdorner : Adorner
 {
-    private readonly Pen pen = new(Brushes.DodgerBlue, 2)
+    private readonly Pen pen = new(new SolidColorBrush(Color.FromRgb(0xFF, 0x8A, 0x1E)), 2)
     {
         DashCap = PenLineCap.Round,
     };
@@ -28,6 +28,6 @@ internal sealed class DropIndicatorAdorner : Adorner
         drawingContext.DrawLine(pen, new Point(0, LineY), new Point(width, LineY));
 
         const double markerRadius = 3.5;
-        drawingContext.DrawEllipse(Brushes.DodgerBlue, null, new Point(markerRadius, LineY), markerRadius, markerRadius);
+        drawingContext.DrawEllipse(new SolidColorBrush(Color.FromRgb(0xFF, 0x8A, 0x1E)), null, new Point(markerRadius, LineY), markerRadius, markerRadius);
     }
 }
