@@ -28,6 +28,9 @@ public sealed partial class Track : ObservableObject
     public partial int SampleRate { get; set; }
 
     [ObservableProperty]
+    public partial int BitsPerSample { get; set; }
+
+    [ObservableProperty]
     public partial byte[]? AlbumArtData { get; set; }
 
     public Track(string filePath)

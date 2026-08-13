@@ -21,6 +21,7 @@ public sealed class MetadataService(IDispatcherService dispatcherService) : IMet
             string? album = null;
             TimeSpan? duration = null;
             var sampleRate = 0;
+            var bitsPerSample = 0;
             byte[]? albumArtData = null;
 
             try
@@ -40,6 +41,11 @@ public sealed class MetadataService(IDispatcherService dispatcherService) : IMet
                 if (file.Properties?.AudioSampleRate is { } fileSampleRate && fileSampleRate > 0)
                 {
                     sampleRate = fileSampleRate;
+                }
+
+                if (file.Properties?.BitsPerSample is { } fileBitsPerSample && fileBitsPerSample > 0)
+                {
+                    bitsPerSample = fileBitsPerSample;
                 }
 
                 if (tag.Pictures is { Length: > 0 } pictures)
@@ -69,6 +75,7 @@ public sealed class MetadataService(IDispatcherService dispatcherService) : IMet
                 }
 
                 track.SampleRate = sampleRate;
+                track.BitsPerSample = bitsPerSample;
                 track.AlbumArtData = albumArtData;
             });
         }, cancellationToken);
