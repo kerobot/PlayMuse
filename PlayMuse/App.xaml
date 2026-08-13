@@ -26,6 +26,7 @@
             <SolidColorBrush x:Key="PanelDarkBrush" Color="{StaticResource PanelDarkColor}"/>
             <SolidColorBrush x:Key="PanelMidBrush" Color="{StaticResource PanelMidColor}"/>
             <SolidColorBrush x:Key="PanelLightBrush" Color="{StaticResource PanelLightColor}"/>
+            <SolidColorBrush x:Key="ListItemSelectedBrush" Color="{StaticResource MetalHighlightColor}"/>
 
             <!-- ヘアライン仕上げ風の金属パネル背景 -->
             <LinearGradientBrush x:Key="MetalPanelBrush" StartPoint="0,0" EndPoint="0,1">
@@ -251,7 +252,13 @@
             <Style TargetType="ListBox">
                 <Setter Property="Background" Value="{StaticResource PanelDarkBrush}"/>
                 <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-                <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+                <Setter Property="BorderBrush" Value="Transparent"/>
+                <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                <Style.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True">
+                        <Setter Property="BorderBrush" Value="{StaticResource PanelLightBrush}"/>
+                    </Trigger>
+                </Style.Triggers>
             </Style>
 
             <Style TargetType="ScrollBar">
@@ -306,7 +313,7 @@
                                     <Setter TargetName="border" Property="Background" Value="{StaticResource PanelLightBrush}"/>
                                 </Trigger>
                                 <Trigger Property="IsSelected" Value="True">
-                                    <Setter TargetName="border" Property="Background" Value="{StaticResource AccentDimBrush}"/>
+                                    <Setter TargetName="border" Property="Background" Value="{StaticResource ListItemSelectedBrush}"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>

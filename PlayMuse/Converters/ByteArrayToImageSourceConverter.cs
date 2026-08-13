@@ -25,6 +25,10 @@ public sealed class ByteArrayToImageSourceConverter : IValueConverter
             var image = new BitmapImage();
             image.BeginInit();
             image.CacheOption = BitmapCacheOption.OnLoad;
+            image.CreateOptions = BitmapCreateOptions.None;
+            // 表示サイズ（40x40程度）に対して高DPI環境でも滲まないよう、
+            // 実表示より大きめの解像度でデコードしてから縮小表示させる。
+            image.DecodePixelWidth = 128;
             image.StreamSource = stream;
             image.EndInit();
             image.Freeze();

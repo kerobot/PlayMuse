@@ -22,6 +22,7 @@
         <converters:BitsPerSampleToStringConverter x:Key="BitsPerSampleToStringConverter"/>
         <converters:DraggingOpacityConverter x:Key="DraggingOpacityConverter"/>
         <converters:CurrentTrackBackgroundConverter x:Key="CurrentTrackBackgroundConverter"/>
+        <converters:CurrentTrackForegroundConverter x:Key="CurrentTrackForegroundConverter"/>
         <converters:CurrentTrackIconVisibilityConverter x:Key="CurrentTrackIconVisibilityConverter"/>
         <Style x:Key="IconButtonStyle" TargetType="Button">
             <Setter Property="Background" Value="Transparent"/>
@@ -110,7 +111,7 @@
                  DragLeave="TrackList_DragLeave"
                  Drop="TrackList_Drop">
             <ListBox.ItemContainerStyle>
-                <Style TargetType="ListBoxItem">
+                <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
                     <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
                     <EventSetter Event="MouseDoubleClick" Handler="TrackItem_MouseDoubleClick"/>
                     <Setter Property="Opacity">
@@ -121,16 +122,7 @@
                             </MultiBinding>
                         </Setter.Value>
                     </Setter>
-                    <Setter Property="Background">
-                        <Setter.Value>
-                            <MultiBinding Converter="{StaticResource CurrentTrackBackgroundConverter}">
-                                <Binding/>
-                                <Binding Path="DataContext.CurrentTrack" RelativeSource="{RelativeSource AncestorType=ListBox}"/>
-                                <Binding Path="DataContext.PlaybackStatus" RelativeSource="{RelativeSource AncestorType=ListBox}"/>
-                            </MultiBinding>
-                        </Setter.Value>
-                    </Setter>
-                </Style>
+                    </Style>
             </ListBox.ItemContainerStyle>
             <ListBox.ItemTemplate>
                 <DataTemplate>
@@ -150,7 +142,8 @@
                         <Border Grid.Column="1" Width="40" Height="40" Margin="0,0,8,0"
                                 Background="{StaticResource PanelMidBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
                             <Image Source="{Binding AlbumArtData, Converter={StaticResource ByteArrayToImageSourceConverter}}"
-                                   Stretch="UniformToFill"/>
+                                   Stretch="UniformToFill"
+                                   RenderOptions.BitmapScalingMode="HighQuality"/>
                         </Border>
                         <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="0,0,8,0">
                             <StackPanel Orientation="Horizontal">
@@ -163,7 +156,15 @@
                                         </MultiBinding>
                                     </TextBlock.Visibility>
                                 </TextBlock>
-                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis">
+                                    <TextBlock.Foreground>
+                                        <MultiBinding Converter="{StaticResource CurrentTrackForegroundConverter}" FallbackValue="{StaticResource TextPrimaryBrush}">
+                                            <Binding/>
+                                            <Binding Path="DataContext.CurrentTrack" RelativeSource="{RelativeSource AncestorType=ListBox}"/>
+                                            <Binding Path="DataContext.PlaybackStatus" RelativeSource="{RelativeSource AncestorType=ListBox}"/>
+                                        </MultiBinding>
+                                    </TextBlock.Foreground>
+                                </TextBlock>
                             </StackPanel>
                             <TextBlock Text="{Binding Artist}" FontSize="11" Opacity="0.7" TextTrimming="CharacterEllipsis"/>
                         </StackPanel>

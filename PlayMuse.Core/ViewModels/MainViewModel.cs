@@ -413,7 +413,18 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
+        var wasAlreadyCurrent = ReferenceEquals(playlistService.CurrentTrack, track);
         playlistService.TrySetCurrentIndex(index);
+
+        // Playlist.TrySetCurrentIndexはインデックスが有効であれば常にtrueを返すため、
+        // 既に再生中の曲を再度ダブルクリックした場合はトラック切り替え（リロード）が発生しない。
+        // そのため、ここで明示的に先頭まで巻き戻してから再生を開始する。
+        if (wasAlreadyCurrent)
+        {
+            playbackService.Position = TimeSpan.Zero;
+            Position = TimeSpan.Zero;
+        }
+
         playbackService.Play();
     }
 
