@@ -36,7 +36,7 @@ public partial class MainWindow : Window
         // PlayMuse.CoreはUIフレームワーク非依存に保つため、DispatcherTimerはここに置く。
         positionTimer = new DispatcherTimer
         {
-            Interval = TimeSpan.FromMilliseconds(250),
+            Interval = TimeSpan.FromMilliseconds(100),
         };
         positionTimer.Tick += (_, _) => viewModel.RefreshPosition();
 

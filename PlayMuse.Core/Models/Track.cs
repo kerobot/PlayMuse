@@ -13,28 +13,28 @@ public sealed partial class Track : ObservableObject
     public string FileName => Path.GetFileName(FilePath);
 
     [ObservableProperty]
-    private string title;
+    public partial string Title { get; set; }
 
     [ObservableProperty]
-    private string? artist;
+    public partial string? Artist { get; set; }
 
     [ObservableProperty]
-    private string? album;
+    public partial string? Album { get; set; }
 
     [ObservableProperty]
-    private TimeSpan duration;
+    public partial TimeSpan Duration { get; set; }
 
     [ObservableProperty]
-    private int sampleRate;
+    public partial int SampleRate { get; set; }
 
     [ObservableProperty]
-    private byte[]? albumArtData;
+    public partial byte[]? AlbumArtData { get; set; }
 
     public Track(string filePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
 
         FilePath = filePath;
-        title = Path.GetFileNameWithoutExtension(filePath);
+        Title = Path.GetFileNameWithoutExtension(filePath);
     }
 }

@@ -10,7 +10,7 @@ namespace PlayMuse.Core.Services;
 /// NAudioの<see cref="AudioFileReader"/>（デコード）と<see cref="WasapiOut"/>（WASAPI出力）を
 /// 組み合わせて実装する再生サービス。
 /// </summary>
-public sealed class AudioPlaybackService : IAudioPlaybackService
+public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger = null) : IAudioPlaybackService
 {
     private const int LatencyMilliseconds = 200;
 
@@ -31,7 +31,7 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
         public const int DeviceInvalidated = -2004287484;
     }
 
-    private readonly ILogger<AudioPlaybackService> logger;
+    private readonly ILogger<AudioPlaybackService> logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<AudioPlaybackService>.Instance;
     private WaveStream? reader;
     private PcmVolumeProvider? volumeProvider;
     private WasapiOut? output;
@@ -42,11 +42,6 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
     private bool isUserStopped;
     private string? normalizedTempWavPath;
     private Track? pendingTrack;
-
-    public AudioPlaybackService(ILogger<AudioPlaybackService>? logger = null)
-    {
-        this.logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<AudioPlaybackService>.Instance;
-    }
 
     public PlaybackState State
     {
@@ -60,7 +55,10 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
 
             var oldState = state;
             state = value;
-            logger.LogDebug("再生状態が変化しました: {OldState} -> {NewState}", oldState, value);
+            if (logger.IsEnabled(LogLevel.Debug))
+            {
+                logger.LogDebug("再生状態が変化しました: {OldState} -> {NewState}", oldState, value);
+            }
             StateChanged?.Invoke(this, value);
         }
     }
@@ -89,11 +87,7 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
         set
         {
             desiredVolume = Math.Clamp(value, 0f, 1f);
-
-            if (volumeProvider is not null)
-            {
-                volumeProvider.Volume = desiredVolume;
-            }
+            volumeProvider?.Volume = desiredVolume;
         }
     }
 
@@ -235,7 +229,10 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
             return;
         }
 
-        logger.LogInformation("出力デバイスが変更されました: {DeviceName} ({DeviceId})", device.Name, device.Id);
+        if (logger.IsEnabled(LogLevel.Information))
+        {
+            logger.LogInformation("出力デバイスが変更されました: {DeviceName} ({DeviceId})", device.Name, device.Id);
+        }
         OutputDevice = device;
         ReinitializeOutputPreservingState();
     }
@@ -351,10 +348,13 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
         {
             var fileFormat = reader!.WaveFormat;
 
-            logger.LogDebug(
-                "[InitializeOutputCore] 排他モード: ファイル={SampleRate}Hz {BitsPerSample}bit {Channels}ch {Encoding}{SubFormat}",
-                fileFormat.SampleRate, fileFormat.BitsPerSample, fileFormat.Channels, fileFormat.Encoding,
-                fileFormat is WaveFormatExtensible fe ? $" SubFormat={fe.SubFormat}" : "");
+            if (logger.IsEnabled(LogLevel.Debug))
+            {
+                logger.LogDebug(
+                    "[InitializeOutputCore] 排他モード: ファイル={SampleRate}Hz {BitsPerSample}bit {Channels}ch {Encoding}{SubFormat}",
+                    fileFormat.SampleRate, fileFormat.BitsPerSample, fileFormat.Channels, fileFormat.Encoding,
+                    fileFormat is WaveFormatExtensible fe ? $" SubFormat={fe.SubFormat}" : "");
+            }
 
             // デバイスが対応しているフォーマット候補を列挙してデバッグ出力
             LogSupportedDeviceFormats(logger, currentMMDevice!, fileFormat.Channels);
@@ -366,16 +366,22 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
             var bitPerfectFormat = ResolveBitPerfectFormat(currentMMDevice!, fileFormat);
             bool isBitPerfect = bitPerfectFormat is not null;
 
-            logger.LogDebug(
-                "[InitializeOutputCore] ビットパーフェクト判定: {IsBitPerfect} ({SampleRate}Hz {BitsPerSample}bit {Channels}ch {Encoding})",
-                isBitPerfect, fileFormat.SampleRate, fileFormat.BitsPerSample, fileFormat.Channels, fileFormat.Encoding);
+            if (logger.IsEnabled(LogLevel.Debug))
+            {
+                logger.LogDebug(
+                    "[InitializeOutputCore] ビットパーフェクト判定: {IsBitPerfect} ({SampleRate}Hz {BitsPerSample}bit {Channels}ch {Encoding})",
+                    isBitPerfect, fileFormat.SampleRate, fileFormat.BitsPerSample, fileFormat.Channels, fileFormat.Encoding);
+            }
 
             if (isBitPerfect)
             {
                 // ファイルフォーマット（またはそのExtensible相当）をそのまま出力（リサンプリング不要）
-                logger.LogDebug(
-                    "[InitializeOutputCore] ビットパーフェクト再生: {SampleRate}Hz {BitsPerSample}bit {Channels}ch {Encoding}",
-                    fileFormat.SampleRate, fileFormat.BitsPerSample, fileFormat.Channels, fileFormat.Encoding);
+                if (logger.IsEnabled(LogLevel.Debug))
+                {
+                    logger.LogDebug(
+                        "[InitializeOutputCore] ビットパーフェクト再生: {SampleRate}Hz {BitsPerSample}bit {Channels}ch {Encoding}",
+                        fileFormat.SampleRate, fileFormat.BitsPerSample, fileFormat.Channels, fileFormat.Encoding);
+                }
                 OutputFormat = bitPerfectFormat;
             }
             else
@@ -388,10 +394,13 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
 
                 if (bestDeviceFormat is not null)
                 {
-                    logger.LogDebug(
-                        "[InitializeOutputCore] リサンプリング: {SourceSampleRate}Hz {SourceBitsPerSample}bit {SourceEncoding} -> {TargetSampleRate}Hz {TargetBitsPerSample}bit {TargetEncoding}",
-                        fileFormat.SampleRate, fileFormat.BitsPerSample, fileFormat.Encoding,
-                        bestDeviceFormat.SampleRate, bestDeviceFormat.BitsPerSample, bestDeviceFormat.Encoding);
+                    if (logger.IsEnabled(LogLevel.Debug))
+                    {
+                        logger.LogDebug(
+                            "[InitializeOutputCore] リサンプリング: {SourceSampleRate}Hz {SourceBitsPerSample}bit {SourceEncoding} -> {TargetSampleRate}Hz {TargetBitsPerSample}bit {TargetEncoding}",
+                            fileFormat.SampleRate, fileFormat.BitsPerSample, fileFormat.Encoding,
+                            bestDeviceFormat.SampleRate, bestDeviceFormat.BitsPerSample, bestDeviceFormat.Encoding);
+                    }
 
                     resampler = new MediaFoundationResampler(volumeProvider, bestDeviceFormat);
                     waveProvider = resampler;
@@ -402,9 +411,12 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
                 {
                     // 対応フォーマットが見つからない場合はMixFormat（デバイスのネイティブ共有フォーマット）へリサンプリング
                     var mixFormat = currentMMDevice!.AudioClient.MixFormat;
-                    logger.LogDebug(
-                        "[InitializeOutputCore] 対応フォーマットなし: MixFormatへリサンプリング {SourceSampleRate}Hz -> {TargetSampleRate}Hz",
-                        fileFormat.SampleRate, mixFormat.SampleRate);
+                    if (logger.IsEnabled(LogLevel.Debug))
+                    {
+                        logger.LogDebug(
+                            "[InitializeOutputCore] 対応フォーマットなし: MixFormatへリサンプリング {SourceSampleRate}Hz -> {TargetSampleRate}Hz",
+                            fileFormat.SampleRate, mixFormat.SampleRate);
+                    }
 
                     resampler = new MediaFoundationResampler(volumeProvider, mixFormat);
                     waveProvider = resampler;
@@ -606,7 +618,10 @@ public sealed class AudioPlaybackService : IAudioPlaybackService
         {
             if (device.AudioClient.IsFormatSupported(AudioClientShareMode.Exclusive, format))
             {
-                logger.LogDebug("  対応: {SampleRate}Hz {BitsPerSample}bit {Channels}ch ({Label})", sampleRate, bitsPerSample, channels, label);
+                if (logger.IsEnabled(LogLevel.Debug))
+                {
+                    logger.LogDebug("  対応: {SampleRate}Hz {BitsPerSample}bit {Channels}ch ({Label})", sampleRate, bitsPerSample, channels, label);
+                }
             }
         }
         catch

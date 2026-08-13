@@ -21,48 +21,48 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private readonly IDispatcherService dispatcherService;
     private readonly IMetadataService metadataService;
     private readonly ISettingsService settingsService;
-    private bool isInitializing = true;
+    private readonly bool isInitializing = true;
     private string? currentPlaylistFilePath;
     private int trackUnavailableSkipCount;
 
     [ObservableProperty]
-    private Track? currentTrack;
+    public partial Track? CurrentTrack { get; set; }
 
     [ObservableProperty]
-    private Track? selectedTrack;
+    public partial Track? SelectedTrack { get; set; }
 
     [ObservableProperty]
-    private PlaybackState playbackStatus = PlaybackState.Stopped;
+    public partial PlaybackState PlaybackStatus { get; set; } = PlaybackState.Stopped;
 
     [ObservableProperty]
-    private TimeSpan position;
+    public partial TimeSpan Position { get; set; }
 
     [ObservableProperty]
-    private TimeSpan duration;
+    public partial TimeSpan Duration { get; set; }
 
     [ObservableProperty]
-    private double volume = 1.0;
+    public partial double Volume { get; set; } = 1.0;
 
     [ObservableProperty]
-    private AudioDeviceInfo? selectedDevice;
+    public partial AudioDeviceInfo? SelectedDevice { get; set; }
 
     [ObservableProperty]
-    private bool isExclusiveMode;
+    public partial bool IsExclusiveMode { get; set; }
 
     [ObservableProperty]
-    private string? statusMessage;
+    public partial string? StatusMessage { get; set; }
 
     [ObservableProperty]
-    private string? audioInfoText;
+    public partial string? AudioInfoText { get; set; }
 
     [ObservableProperty]
-    private bool isLoopEnabled;
+    public partial bool IsLoopEnabled { get; set; }
 
     /// <summary>
     /// プレイリスト上でドラッグ操作中のトラック。Viewはこれを参照してドラッグ中アイテムの半透明表示を行う。
     /// </summary>
     [ObservableProperty]
-    private Track? draggingTrack;
+    public partial Track? DraggingTrack { get; set; }
 
     public MainViewModel(
         IAudioPlaybackService playbackService,
@@ -341,7 +341,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private bool CanPlayPause() => CurrentTrack is not null || SelectedTrack is not null;
 
     [ObservableProperty]
-    private string playPauseButtonText = "PLAY";
+    public partial string PlayPauseButtonText { get; set; } = "PLAY";
 
     partial void OnSelectedTrackChanged(Track? value)
     {
@@ -740,10 +740,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
         var isResampling = playbackService.IsResampling;
         var outputDevice = playbackService.OutputDevice;
 
-        var lines = new List<string>();
-
-        // ファイル情報
-        lines.Add($"📁 ソース: {sourceFormat.SampleRate / 1000.0:0.#} kHz / {sourceFormat.BitsPerSample} bit / {sourceFormat.Channels} ch / {sourceFormat.Encoding}");
+        var lines = new List<string>
+        {
+            // ファイル情報
+            $"📁 音源: {sourceFormat.SampleRate / 1000.0:0.#} kHz / {sourceFormat.BitsPerSample} bit / {sourceFormat.Channels} ch / {sourceFormat.Encoding}"
+        };
 
         // 出力情報
         if (outputFormat is not null)
@@ -787,5 +788,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
         playlistService.CurrentTrackChanged -= OnCurrentTrackChanged;
         playlistService.Tracks.CollectionChanged -= OnTracksCollectionChanged;
         deviceService.DevicesChanged -= OnDevicesChanged;
+        GC.SuppressFinalize(this);
     }
 }

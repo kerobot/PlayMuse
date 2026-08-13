@@ -15,7 +15,7 @@ public sealed class AudioDeviceService : IAudioDeviceService, IMMNotificationCli
 {
     private readonly MMDeviceEnumerator notificationEnumerator = new();
     private readonly ILogger<AudioDeviceService> logger;
-    private bool isNotificationRegistered;
+    private readonly bool isNotificationRegistered;
 
     public AudioDeviceService(ILogger<AudioDeviceService>? logger = null)
     {
@@ -92,19 +92,28 @@ public sealed class AudioDeviceService : IAudioDeviceService, IMMNotificationCli
 
     void IMMNotificationClient.OnDeviceStateChanged(string deviceId, DeviceState newState)
     {
-        logger.LogDebug("デバイスの状態が変化しました: {DeviceId} -> {NewState}", deviceId, newState);
+        if (logger.IsEnabled(LogLevel.Debug))
+        {
+            logger.LogDebug("デバイスの状態が変化しました: {DeviceId} -> {NewState}", deviceId, newState);
+        }
         RaiseDevicesChanged();
     }
 
     void IMMNotificationClient.OnDeviceAdded(string deviceId)
     {
-        logger.LogDebug("デバイスが追加されました: {DeviceId}", deviceId);
+        if (logger.IsEnabled(LogLevel.Debug))
+        {
+            logger.LogDebug("デバイスが追加されました: {DeviceId}", deviceId);
+        }
         RaiseDevicesChanged();
     }
 
     void IMMNotificationClient.OnDeviceRemoved(string deviceId)
     {
-        logger.LogDebug("デバイスが削除されました: {DeviceId}", deviceId);
+        if (logger.IsEnabled(LogLevel.Debug))
+        {
+            logger.LogDebug("デバイスが削除されました: {DeviceId}", deviceId);
+        }
         RaiseDevicesChanged();
     }
 
@@ -113,7 +122,10 @@ public sealed class AudioDeviceService : IAudioDeviceService, IMMNotificationCli
         // 再生(Render)側の既定デバイス変更のみを対象とする。
         if (flow == DataFlow.Render)
         {
-            logger.LogInformation("既定出力デバイスが変更されました: {DeviceId}", defaultDeviceId);
+            if (logger.IsEnabled(LogLevel.Information))
+            {
+                logger.LogInformation("既定出力デバイスが変更されました: {DeviceId}", defaultDeviceId);
+            }
             RaiseDevicesChanged();
         }
     }
