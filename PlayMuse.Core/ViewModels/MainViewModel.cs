@@ -58,6 +58,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     public partial bool IsLoopEnabled { get; set; }
 
+    [ObservableProperty]
+    public partial bool IsTrackInfoVisible { get; set; } = true;
+
+    [ObservableProperty]
+    public partial bool IsSpectrumVisible { get; set; } = true;
+
     /// <summary>
     /// プレイリスト上でドラッグ操作中のトラック。Viewはこれを参照してドラッグ中アイテムの半透明表示を行う。
     /// </summary>
@@ -458,6 +464,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
         SaveSettingsIfReady();
     }
 
+    partial void OnIsTrackInfoVisibleChanged(bool value)
+    {
+        SaveSettingsIfReady();
+    }
+
+    partial void OnIsSpectrumVisibleChanged(bool value)
+    {
+        SaveSettingsIfReady();
+    }
+
     partial void OnPositionChanged(TimeSpan value)
     {
         if (IsSeeking)
@@ -702,6 +718,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         IsExclusiveMode = settings.ShareMode == AudioShareMode.Exclusive;
         IsLoopEnabled = settings.IsLoopEnabled;
         playlistService.IsLoopEnabled = settings.IsLoopEnabled;
+        IsTrackInfoVisible = settings.IsTrackInfoVisible;
+        IsSpectrumVisible = settings.IsSpectrumVisible;
 
         if (settings.OutputDeviceId is not null)
         {
@@ -734,6 +752,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
             Volume = (float)Volume,
             IsLoopEnabled = IsLoopEnabled,
             LastPlaylistFilePath = currentPlaylistFilePath,
+            IsTrackInfoVisible = IsTrackInfoVisible,
+            IsSpectrumVisible = IsSpectrumVisible,
         });
     }
 

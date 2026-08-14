@@ -54,6 +54,9 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <!-- カスタムタイトルバー -->
@@ -189,20 +192,37 @@
             </ListBox.ItemTemplate>
         </ListBox>
 
+        <!-- TRACK INFOMATION ヘッダー -->
+        <DockPanel Grid.Row="3" Margin="12,8,12,0" LastChildFill="False">
+            <CheckBox DockPanel.Dock="Left" Content="TRACK INFOMATION" VerticalAlignment="Center"
+                      IsChecked="{Binding IsTrackInfoVisible}"/>
+        </DockPanel>
+
         <!-- オーディオ情報パネル -->
-        <Border Grid.Row="3" Margin="12,8,12,0" Padding="8" 
-                Background="{StaticResource PanelDarkBrush}" BorderBrush="{StaticResource AccentDimBrush}" BorderThickness="1"
-                Visibility="{Binding AudioInfoText, Converter={StaticResource NullToVisibilityConverter}}">
-            <TextBlock Text="{Binding AudioInfoText}" 
+        <Border x:Name="TrackInfoPanel" Grid.Row="4" Margin="12,8,12,0" Padding="8" ClipToBounds="True"
+                Background="{StaticResource PanelDarkBrush}" BorderBrush="{StaticResource AccentDimBrush}" BorderThickness="1">
+            <TextBlock Text="{Binding AudioInfoText}"
                        Foreground="{StaticResource AccentGlowBrush}"
-                       FontFamily="Consolas, Courier New" 
-                       FontSize="11" 
+                       FontFamily="Consolas, Courier New"
+                       FontSize="11"
                        LineHeight="18"
                        TextWrapping="Wrap"/>
         </Border>
 
+        <!-- SPECTRUM ANALYZER ヘッダー -->
+        <DockPanel Grid.Row="5" Margin="12,8,12,0" LastChildFill="False">
+            <CheckBox DockPanel.Dock="Left" Content="SPECTRUM ANALYZER" VerticalAlignment="Center"
+                      IsChecked="{Binding IsSpectrumVisible}"/>
+        </DockPanel>
+
+        <!-- スペアナ表示欄（プレースホルダー） -->
+        <Border x:Name="SpectrumPanel" Grid.Row="6" Margin="12,8,12,0" ClipToBounds="True"
+                Background="{StaticResource PanelDarkBrush}" BorderBrush="{StaticResource AccentDimBrush}" BorderThickness="1">
+            <Grid/>
+        </Border>
+
         <!-- 再生中のトラック情報 -->
-        <Grid Grid.Row="4" Margin="12,8,12,0" Visibility="{Binding CurrentTrack, Converter={StaticResource NullToVisibilityConverter}}">
+        <Grid Grid.Row="7" Margin="12,8,12,0" Visibility="{Binding CurrentTrack, Converter={StaticResource NullToVisibilityConverter}}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
@@ -226,7 +246,7 @@
         </Grid>
 
         <!-- シーク -->
-        <Grid Grid.Row="5" Margin="12,8,12,0">
+        <Grid Grid.Row="8" Margin="12,8,12,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
@@ -245,7 +265,7 @@
         </Grid>
 
         <!-- 再生系トランスポート + 音量 -->
-        <Grid Grid.Row="6" Margin="12,8,12,0">
+        <Grid Grid.Row="9" Margin="12,8,12,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
@@ -263,7 +283,7 @@
         </Grid>
 
         <!-- ステータス -->
-        <TextBlock Grid.Row="7" Margin="12,8,12,10" Opacity="0.8" TextTrimming="CharacterEllipsis"
+        <TextBlock Grid.Row="10" Margin="12,8,12,10" Opacity="0.8" TextTrimming="CharacterEllipsis"
                    Foreground="{StaticResource TextSecondaryBrush}"
                    Text="{Binding StatusMessage}"/>
     </Grid>

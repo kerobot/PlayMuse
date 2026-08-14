@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using PlayMuse.Core.Models;
 using PlayMuse.Core.ViewModels;
@@ -17,6 +18,9 @@ public partial class MainWindow : Window
     private const string TrackDragFormat = "PlayMuse.Track";
     private const double AutoScrollEdgeSize = 40;
     private const double AutoScrollStep = 16;
+    private const double TrackInfoPanelExpandedHeight = 110;
+    private const double SpectrumPanelExpandedHeight = 110;
+    private static readonly TimeSpan PanelToggleDuration = TimeSpan.FromSeconds(0.2);
 
     private readonly MainViewModel viewModel;
     private readonly DispatcherTimer positionTimer;
@@ -47,12 +51,65 @@ public partial class MainWindow : Window
         autoScrollTimer.Tick += (_, _) => autoScrollViewer?.ScrollToVerticalOffset(autoScrollViewer.VerticalOffset + autoScrollDirection);
 
         Loaded += (_, _) => positionTimer.Start();
+        Loaded += (_, _) =>
+        {
+            ToggleTrackInfoPanel(viewModel.IsTrackInfoVisible, animate: false);
+            ToggleSpectrumPanel(viewModel.IsSpectrumVisible, animate: false);
+        };
         Closed += (_, _) =>
         {
             positionTimer.Stop();
             autoScrollTimer.Stop();
             viewModel.Dispose();
         };
+
+        viewModel.PropertyChanged += (_, e) =>
+        {
+            switch (e.PropertyName)
+            {
+                case nameof(MainViewModel.IsTrackInfoVisible):
+                    ToggleTrackInfoPanel(viewModel.IsTrackInfoVisible, animate: true);
+                    break;
+                case nameof(MainViewModel.IsSpectrumVisible):
+                    ToggleSpectrumPanel(viewModel.IsSpectrumVisible, animate: true);
+                    break;
+            }
+        };
+    }
+
+    /// <summary>
+    /// TRACK INFOMATIONパネルの開閉を高さアニメーションで反映する。展開先はSPECTRUM ANALYZERパネルと同じ固定高さとする。
+    /// </summary>
+    private void ToggleTrackInfoPanel(bool visible, bool animate)
+    {
+        AnimatePanelHeight(TrackInfoPanel, visible ? TrackInfoPanelExpandedHeight : 0, animate);
+    }
+
+    /// <summary>
+    /// SPECTRUM ANALYZERパネル（プレースホルダー）の開閉を高さアニメーションで反映する。展開先は固定高さとする。
+    /// </summary>
+    private void ToggleSpectrumPanel(bool visible, bool animate)
+    {
+        AnimatePanelHeight(SpectrumPanel, visible ? SpectrumPanelExpandedHeight : 0, animate);
+    }
+
+    private static void AnimatePanelHeight(Border panel, double targetHeight, bool animate)
+    {
+        if (!animate)
+        {
+            panel.BeginAnimation(FrameworkElement.HeightProperty, null);
+            panel.Height = targetHeight;
+            return;
+        }
+
+        var animation = new DoubleAnimation
+        {
+            From = double.IsNaN(panel.Height) ? panel.ActualHeight : panel.Height,
+            To = targetHeight,
+            Duration = PanelToggleDuration,
+            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseInOut },
+        };
+        panel.BeginAnimation(FrameworkElement.HeightProperty, animation);
     }
 
     private void TrackItem_MouseDoubleClick(object sender, MouseButtonEventArgs e)
