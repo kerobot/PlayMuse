@@ -35,6 +35,8 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer autoScrollTimer;
     private readonly DispatcherTimer spectrumTimer;
     private readonly System.Windows.Shapes.Rectangle[,] spectrumCells = new System.Windows.Shapes.Rectangle[SpectrumColumnCount, SpectrumRowCount];
+    private readonly Brush?[,] spectrumCellFills = new Brush?[SpectrumColumnCount, SpectrumRowCount];
+    private readonly double[,] spectrumCellOpacities = new double[SpectrumColumnCount, SpectrumRowCount];
     private readonly System.Windows.Shapes.Line[] spectrumVerticalGridLines = new System.Windows.Shapes.Line[SpectrumColumnCount + 1];
     private readonly System.Windows.Shapes.Line[] spectrumHorizontalGridLines = new System.Windows.Shapes.Line[SpectrumRowCount + 1];
     private Point? dragStartPoint;
@@ -202,6 +204,8 @@ public partial class MainWindow : Window
                     Fill = Brushes.Transparent,
                 };
                 spectrumCells[col, row] = cell;
+                spectrumCellFills[col, row] = cell.Fill;
+                spectrumCellOpacities[col, row] = cell.Opacity;
                 SpectrumCanvas.Children.Add(cell);
             }
         }
@@ -285,27 +289,43 @@ public partial class MainWindow : Window
                 var rowLevel = SpectrumRowCount - row;
                 var cell = spectrumCells[col, row];
 
+                Brush fill;
+                double opacity;
+
                 if (row == peakRow && peak > level)
                 {
-                    cell.Fill = glowBrush;
-                    cell.Opacity = 1.0;
+                    fill = glowBrush;
+                    opacity = 1.0;
                 }
                 else if (rowLevel <= level)
                 {
                     // 完全に点灯している段は不透明度を最大にする。
-                    cell.Fill = dimBrush;
-                    cell.Opacity = 1.0;
+                    fill = dimBrush;
+                    opacity = 1.0;
                 }
                 else if (rowLevel - 1 < level)
                 {
                     // レベルが段の途中で終わる場合、端数分だけ不透明度を上げて滑らかに見せる。
-                    cell.Fill = dimBrush;
-                    cell.Opacity = Math.Clamp(level - (rowLevel - 1), 0.0, 1.0);
+                    fill = dimBrush;
+                    opacity = Math.Clamp(level - (rowLevel - 1), 0.0, 1.0);
                 }
                 else
                 {
-                    cell.Fill = Brushes.Transparent;
-                    cell.Opacity = 1.0;
+                    fill = Brushes.Transparent;
+                    opacity = 1.0;
+                }
+
+                // 値に変化がないセルはFill/Opacityの再設定を避け、無効な描画・レイアウトパスの誘発を抑える。
+                if (!ReferenceEquals(spectrumCellFills[col, row], fill))
+                {
+                    cell.Fill = fill;
+                    spectrumCellFills[col, row] = fill;
+                }
+
+                if (spectrumCellOpacities[col, row] != opacity)
+                {
+                    cell.Opacity = opacity;
+                    spectrumCellOpacities[col, row] = opacity;
                 }
             }
         }
