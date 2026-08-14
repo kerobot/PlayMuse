@@ -109,9 +109,3 @@
 - ✅ **`Microsoft.Extensions.Logging`（Debugプロバイダ）による最小限のログを、再生状態変化・デバイス変更・エラー発生箇所（サービス境界）に追加する。**
 - ✅ **`PlayMuse.Tests` に単体テストを追加する：`PlaylistService` のNext/Previous境界動作、フォーマット判定ロジック、`MainViewModel` のコマンド活性/非活性制御（`IAudioPlaybackService` のフェイク/モックを使用）。**
 - ✅ **ここまでで実装したアプリ全体のコードの一貫性・命名・不要コードについてレビュー/リファクタリングを行う。**
--  **`IAudioPlaybackService` に将来のスペクトラムアナライザー向けフック（サンプルデータ供給用イベント/プロバイダインターフェース）を追加する（可視化処理自体は実装しない）。**
--  **`ILyricsProvider` / `IOnlineLyricsProvider` インターフェースを定義する（スタブ/no-op実装のみとし、ローカル/オンライン歌詞機能の拡張ポイントを確保する）。**
--  **`App.xaml` にマージする `Themes/Default.xaml` の `ResourceDictionary` 雛形を作成し、将来のテーマ切替パターンを確立する。**
--  **`SettingsView`/`SettingsViewModel` の雛形を作成し、Phase 3で実装したデバイス/共有モード設定をそこへ移設する（将来の専用設定画面の土台とする）。**
--  **`README.md` を更新し、現状の実装状況と今後のロードマップ（スペクトラムアナライザー、背景画像表示、歌詞表示、オンライン歌詞連携、および未対応のサードパーティライセンス調整）を追記する。**
-
