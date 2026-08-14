@@ -24,6 +24,7 @@ public partial class MainWindow : Window
 
     private const int SpectrumColumnCount = 16;
     private const int SpectrumRowCount = 10;
+    private const double SpectrumPartialCellMinOpacity = 0.35;
     private static readonly string[] SpectrumFrequencyLabels =
     [
         "20", "30", "40", "70", "120", "190", "310", "490",
@@ -306,8 +307,9 @@ public partial class MainWindow : Window
                 else if (rowLevel - 1 < level)
                 {
                     // レベルが段の途中で終わる場合、端数分だけ不透明度を上げて滑らかに見せる。
+                    // ただし下限を設け、暗すぎて消灯しているように見えないようにする。
                     fill = dimBrush;
-                    opacity = Math.Clamp(level - (rowLevel - 1), 0.0, 1.0);
+                    opacity = Math.Clamp(level - (rowLevel - 1), SpectrumPartialCellMinOpacity, 1.0);
                 }
                 else
                 {
