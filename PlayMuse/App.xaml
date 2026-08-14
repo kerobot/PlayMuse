@@ -14,6 +14,8 @@
             <Color x:Key="AccentColor">#FF8A1E</Color>
             <Color x:Key="AccentDimColor">#8A4A12</Color>
             <Color x:Key="AccentGlowColor">#FFB05A</Color>
+            <Color x:Key="SpectrumBarColor">#FFA84D</Color>
+            <Color x:Key="SpectrumPeakColor">#FFC477</Color>
             <Color x:Key="TextPrimaryColor">#F2E6D8</Color>
             <Color x:Key="TextSecondaryColor">#B8AFA6</Color>
 
@@ -21,6 +23,8 @@
             <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentColor}"/>
             <SolidColorBrush x:Key="AccentDimBrush" Color="{StaticResource AccentDimColor}"/>
             <SolidColorBrush x:Key="AccentGlowBrush" Color="{StaticResource AccentGlowColor}"/>
+            <SolidColorBrush x:Key="SpectrumBarBrush" Color="{StaticResource SpectrumBarColor}"/>
+            <SolidColorBrush x:Key="SpectrumPeakBrush" Color="{StaticResource SpectrumPeakColor}"/>
             <SolidColorBrush x:Key="TextPrimaryBrush" Color="{StaticResource TextPrimaryColor}"/>
             <SolidColorBrush x:Key="TextSecondaryBrush" Color="{StaticResource TextSecondaryColor}"/>
             <SolidColorBrush x:Key="PanelDarkBrush" Color="{StaticResource PanelDarkColor}"/>

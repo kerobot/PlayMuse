@@ -21,6 +21,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private readonly IDispatcherService dispatcherService;
     private readonly IMetadataService metadataService;
     private readonly ISettingsService settingsService;
+    private readonly ISpectrumAnalyzerService spectrumAnalyzer;
     private readonly bool isInitializing = true;
     private string? currentPlaylistFilePath;
     private int trackUnavailableSkipCount;
@@ -77,7 +78,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         IFileDialogService fileDialogService,
         IDispatcherService dispatcherService,
         IMetadataService metadataService,
-        ISettingsService settingsService)
+        ISettingsService settingsService,
+        ISpectrumAnalyzerService spectrumAnalyzer)
     {
         this.playbackService = playbackService;
         this.deviceService = deviceService;
@@ -86,6 +88,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         this.dispatcherService = dispatcherService;
         this.metadataService = metadataService;
         this.settingsService = settingsService;
+        this.spectrumAnalyzer = spectrumAnalyzer;
 
         this.playbackService.StateChanged += OnPlaybackStateChanged;
         this.playbackService.PlaybackCompleted += OnPlaybackCompleted;
@@ -485,6 +488,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
     /// <summary>
     /// ViewのDispatcherTimer（UIスレッド上で動作）から一定間隔で呼び出され、再生位置表示を更新する。
     /// </summary>
+    /// <summary>
+    /// SPECTRUM ANALYZER欄の描画タイマーから呼び出され、16バンド分の現在レベル・ピークホールドレベルを取得する。
+    /// </summary>
+    public IReadOnlyList<SpectrumBandLevel> GetSpectrumLevels() => spectrumAnalyzer.GetBandLevels();
+
     public void RefreshPosition()
     {
         if (IsSeeking)

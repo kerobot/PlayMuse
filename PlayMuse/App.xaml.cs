@@ -52,6 +52,7 @@ public partial class App : Application
             builder.SetMinimumLevel(LogLevel.Debug);
         });
         services.AddSingleton<IAudioDeviceService, AudioDeviceService>();
+        services.AddSingleton<ISpectrumAnalyzerService, SpectrumAnalyzerService>();
         services.AddSingleton<IAudioPlaybackService, AudioPlaybackService>();
         services.AddSingleton<IPlaylistService, PlaylistService>();
         services.AddSingleton<IDispatcherService, WpfDispatcherService>();

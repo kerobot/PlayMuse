@@ -10,7 +10,7 @@ namespace PlayMuse.Core.Services;
 /// NAudioの<see cref="AudioFileReader"/>（デコード）と<see cref="WasapiOut"/>（WASAPI出力）を
 /// 組み合わせて実装する再生サービス。
 /// </summary>
-public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger = null) : IAudioPlaybackService
+public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger = null, ISpectrumAnalyzerService? spectrumAnalyzer = null) : IAudioPlaybackService
 {
     private const int LatencyMilliseconds = 200;
 
@@ -431,6 +431,12 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
             OutputFormat = currentMMDevice?.AudioClient.MixFormat;
         }
 
+        if (spectrumAnalyzer is not null)
+        {
+            // リサンプル後・WasapiOut初期化前の位置で透過的にキャプチャする。
+            waveProvider = new SpectrumTapProvider(waveProvider, spectrumAnalyzer);
+        }
+
         var newOutput = new WasapiOut(currentMMDevice, shareModeNative, true, LatencyMilliseconds);
         newOutput.PlaybackStopped += OnPlaybackStopped;
         newOutput.Init(waveProvider);
@@ -527,6 +533,8 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
 
         currentMMDevice?.Dispose();
         currentMMDevice = null;
+
+        spectrumAnalyzer?.Reset();
     }
 
     private void OnPlaybackStopped(object? sender, StoppedEventArgs e)

@@ -36,7 +36,8 @@ public class MainViewModelTests
             fileDialogService,
             new FakeDispatcherService(),
             metadataService,
-            settingsService);
+            settingsService,
+            new SpectrumAnalyzerService());
 
         return new Fixture(viewModel, playbackService, playlistService, deviceService, fileDialogService, metadataService, settingsService);
     }

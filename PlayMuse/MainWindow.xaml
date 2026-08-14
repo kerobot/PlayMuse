@@ -215,10 +215,17 @@
                       IsChecked="{Binding IsSpectrumVisible}"/>
         </DockPanel>
 
-        <!-- スペアナ表示欄（プレースホルダー） -->
+        <!-- スペアナ表示欄 -->
         <Border x:Name="SpectrumPanel" Grid.Row="6" Margin="12,8,12,0" ClipToBounds="True"
                 Background="{StaticResource PanelDarkBrush}" BorderBrush="{StaticResource AccentDimBrush}" BorderThickness="1">
-            <Grid/>
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Canvas x:Name="SpectrumCanvas" Grid.Row="0" SizeChanged="SpectrumCanvas_SizeChanged"/>
+                <Grid x:Name="SpectrumLabelsGrid" Grid.Row="1" Margin="2,2,2,2"/>
+            </Grid>
         </Border>
 
         <!-- 再生中のトラック情報 -->

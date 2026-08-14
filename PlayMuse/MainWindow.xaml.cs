@@ -19,12 +19,24 @@ public partial class MainWindow : Window
     private const double AutoScrollEdgeSize = 40;
     private const double AutoScrollStep = 16;
     private const double TrackInfoPanelExpandedHeight = 110;
-    private const double SpectrumPanelExpandedHeight = 110;
+    private const double SpectrumPanelExpandedHeight = 130;
     private static readonly TimeSpan PanelToggleDuration = TimeSpan.FromSeconds(0.2);
+
+    private const int SpectrumColumnCount = 16;
+    private const int SpectrumRowCount = 10;
+    private static readonly string[] SpectrumFrequencyLabels =
+    [
+        "20", "30", "40", "70", "120", "190", "310", "490",
+        "780", "1.2k", "1.9k", "3.1k", "5.0k", "7.9k", "12k", "20k",
+    ];
 
     private readonly MainViewModel viewModel;
     private readonly DispatcherTimer positionTimer;
     private readonly DispatcherTimer autoScrollTimer;
+    private readonly DispatcherTimer spectrumTimer;
+    private readonly System.Windows.Shapes.Rectangle[,] spectrumCells = new System.Windows.Shapes.Rectangle[SpectrumColumnCount, SpectrumRowCount];
+    private readonly System.Windows.Shapes.Line[] spectrumVerticalGridLines = new System.Windows.Shapes.Line[SpectrumColumnCount + 1];
+    private readonly System.Windows.Shapes.Line[] spectrumHorizontalGridLines = new System.Windows.Shapes.Line[SpectrumRowCount + 1];
     private Point? dragStartPoint;
     private Track? draggingTrack;
     private DropIndicatorAdorner? dropIndicatorAdorner;
@@ -50,6 +62,14 @@ public partial class MainWindow : Window
         };
         autoScrollTimer.Tick += (_, _) => autoScrollViewer?.ScrollToVerticalOffset(autoScrollViewer.VerticalOffset + autoScrollDirection);
 
+        spectrumTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(33),
+        };
+        spectrumTimer.Tick += (_, _) => RenderSpectrum();
+
+        BuildSpectrumGrid();
+
         Loaded += (_, _) => positionTimer.Start();
         Loaded += (_, _) =>
         {
@@ -60,6 +80,7 @@ public partial class MainWindow : Window
         {
             positionTimer.Stop();
             autoScrollTimer.Stop();
+            spectrumTimer.Stop();
             viewModel.Dispose();
         };
 
@@ -91,6 +112,15 @@ public partial class MainWindow : Window
     private void ToggleSpectrumPanel(bool visible, bool animate)
     {
         AnimatePanelHeight(SpectrumPanel, visible ? SpectrumPanelExpandedHeight : 0, animate);
+
+        if (visible)
+        {
+            spectrumTimer.Start();
+        }
+        else
+        {
+            spectrumTimer.Stop();
+        }
     }
 
     private static void AnimatePanelHeight(Border panel, double targetHeight, bool animate)
@@ -110,6 +140,175 @@ public partial class MainWindow : Window
             EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseInOut },
         };
         panel.BeginAnimation(FrameworkElement.HeightProperty, animation);
+    }
+
+    /// <summary>
+    /// SPECTRUM ANALYZER欄に縦10マス×横16マスの罫線と、各マスに対応するLED風の矩形を配置する。
+    /// ウィンドウサイズ変更時も比率を維持できるよう、実際の座標計算は <see cref="SpectrumCanvas_SizeChanged"/> で行う。
+    /// </summary>
+    private void BuildSpectrumGrid()
+    {
+        SpectrumLabelsGrid.ColumnDefinitions.Clear();
+        SpectrumLabelsGrid.Children.Clear();
+
+        for (var col = 0; col < SpectrumColumnCount; col++)
+        {
+            SpectrumLabelsGrid.ColumnDefinitions.Add(new ColumnDefinition());
+
+            var label = new TextBlock
+            {
+                Text = SpectrumFrequencyLabels[col],
+                FontSize = 9,
+                Opacity = 0.6,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Foreground = (Brush)FindResource("AccentGlowBrush"),
+            };
+            Grid.SetColumn(label, col);
+            SpectrumLabelsGrid.Children.Add(label);
+        }
+
+        SpectrumCanvas.Children.Clear();
+
+        for (var col = 0; col <= SpectrumColumnCount; col++)
+        {
+            var line = new System.Windows.Shapes.Line
+            {
+                Stroke = (Brush)FindResource("AccentDimBrush"),
+                StrokeThickness = 0.5,
+                Opacity = 0.4,
+            };
+            spectrumVerticalGridLines[col] = line;
+            SpectrumCanvas.Children.Add(line);
+        }
+
+        for (var row = 0; row <= SpectrumRowCount; row++)
+        {
+            var line = new System.Windows.Shapes.Line
+            {
+                Stroke = (Brush)FindResource("AccentDimBrush"),
+                StrokeThickness = 0.5,
+                Opacity = 0.4,
+            };
+            spectrumHorizontalGridLines[row] = line;
+            SpectrumCanvas.Children.Add(line);
+        }
+
+        for (var col = 0; col < SpectrumColumnCount; col++)
+        {
+            for (var row = 0; row < SpectrumRowCount; row++)
+            {
+                var cell = new System.Windows.Shapes.Rectangle
+                {
+                    Fill = Brushes.Transparent,
+                };
+                spectrumCells[col, row] = cell;
+                SpectrumCanvas.Children.Add(cell);
+            }
+        }
+
+        LayoutSpectrumGrid();
+    }
+
+    /// <summary>
+    /// Canvasのサイズ変更に応じて各マスの位置・サイズを再計算する。縦横のマス数は変更せず表示比率のみ追従する。
+    /// </summary>
+    private void SpectrumCanvas_SizeChanged(object sender, SizeChangedEventArgs e) => LayoutSpectrumGrid();
+
+    private void LayoutSpectrumGrid()
+    {
+        var width = SpectrumCanvas.ActualWidth;
+        var height = SpectrumCanvas.ActualHeight;
+        if (width <= 0 || height <= 0)
+        {
+            return;
+        }
+
+        var cellWidth = width / SpectrumColumnCount;
+        var cellHeight = height / SpectrumRowCount;
+        const double cellMargin = 1.0;
+
+        for (var col = 0; col <= SpectrumColumnCount; col++)
+        {
+            var line = spectrumVerticalGridLines[col];
+            var x = col * cellWidth;
+            line.X1 = x;
+            line.Y1 = 0;
+            line.X2 = x;
+            line.Y2 = height;
+        }
+
+        for (var row = 0; row <= SpectrumRowCount; row++)
+        {
+            var line = spectrumHorizontalGridLines[row];
+            var y = row * cellHeight;
+            line.X1 = 0;
+            line.Y1 = y;
+            line.X2 = width;
+            line.Y2 = y;
+        }
+
+        for (var col = 0; col < SpectrumColumnCount; col++)
+        {
+            for (var row = 0; row < SpectrumRowCount; row++)
+            {
+                var cell = spectrumCells[col, row];
+                cell.Width = Math.Max(0, cellWidth - cellMargin * 2);
+                cell.Height = Math.Max(0, cellHeight - cellMargin * 2);
+                Canvas.SetLeft(cell, col * cellWidth + cellMargin);
+                // 行0が最上段（最大レベル）になるよう上から配置する。
+                Canvas.SetTop(cell, row * cellHeight + cellMargin);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 33ms間隔でViewModelから16バンド分のレベル・ピークホールド値（連続値）を取得し、LEDセルの
+    /// 点灯状態を更新する。段の境界をまたぐセルは不透明度を連続値に応じて調整し、なめらかに見せる。
+    /// </summary>
+    private void RenderSpectrum()
+    {
+        var levels = viewModel.GetSpectrumLevels();
+        var dimBrush = (Brush)FindResource("SpectrumBarBrush");
+        var glowBrush = (Brush)FindResource("SpectrumPeakBrush");
+
+        for (var col = 0; col < SpectrumColumnCount && col < levels.Count; col++)
+        {
+            var level = levels[col].Level;
+            var peak = levels[col].PeakLevel;
+
+            // ピークホールドは最も近い段に1マス分のグロー表示として点灯させる。
+            var peakRow = SpectrumRowCount - (int)Math.Round(Math.Clamp(peak, 0, SpectrumRowCount));
+
+            for (var row = 0; row < SpectrumRowCount; row++)
+            {
+                // row 0が最上段（最大レベル）、row 9が最下段（最小レベル）に対応する。
+                var rowLevel = SpectrumRowCount - row;
+                var cell = spectrumCells[col, row];
+
+                if (row == peakRow && peak > level)
+                {
+                    cell.Fill = glowBrush;
+                    cell.Opacity = 1.0;
+                }
+                else if (rowLevel <= level)
+                {
+                    // 完全に点灯している段は不透明度を最大にする。
+                    cell.Fill = dimBrush;
+                    cell.Opacity = 1.0;
+                }
+                else if (rowLevel - 1 < level)
+                {
+                    // レベルが段の途中で終わる場合、端数分だけ不透明度を上げて滑らかに見せる。
+                    cell.Fill = dimBrush;
+                    cell.Opacity = Math.Clamp(level - (rowLevel - 1), 0.0, 1.0);
+                }
+                else
+                {
+                    cell.Fill = Brushes.Transparent;
+                    cell.Opacity = 1.0;
+                }
+            }
+        }
     }
 
     private void TrackItem_MouseDoubleClick(object sender, MouseButtonEventArgs e)
