@@ -28,6 +28,8 @@ public sealed class FakeAudioPlaybackService : IAudioPlaybackService
 
     public WaveFormat? OutputFormat => null;
 
+    public string? OutputFormatLabel => null;
+
     public bool IsResampling => false;
 
     public int PlayCallCount { get; private set; }

@@ -43,6 +43,13 @@ public interface IAudioPlaybackService : IDisposable
     WaveFormat? OutputFormat { get; }
 
     /// <summary>
+    /// 実際にデバイスへ送出されるフォーマットの詳細ラベル（例: "PCM", "Extensible/PCM", "Extensible/PCM(24-in-32)"）。
+    /// 排他モードで、ファイルのビット深度をより大きなコンテナへ左詰め格納（例: 24bit有効データを32bitコンテナへ格納）
+    /// して出力している場合、その旨（例: "24-in-32"）が付記される。<see cref="OutputFormat"/> が null の場合は null。
+    /// </summary>
+    string? OutputFormatLabel { get; }
+
+    /// <summary>
     /// リサンプリングが実行されているかどうか。
     /// </summary>
     bool IsResampling { get; }

@@ -4,9 +4,9 @@ Windows C# WPF NAudio WASAPI
 
 ## はじめに
 
-普段からロスレス音源（FLAC）を中心に音楽を聴いています。楽曲配信サービスとしては Spotify を利用しており、2026年3月頃から排他モードが実装されてロスレスのビットパーフェクト再生が行えるようになりました。
+普段からロスレス音源（FLAC）を中心に音楽をよく聴いています。楽曲配信サービスとしては Spotify を利用しており、2026年3月頃から排他モードが実装されてロスレスのビットパーフェクト再生が行えるようになりました。
 
-Windows 向けとしては foobar2000 などのビットパーフェクト再生可能なアプリケーションも数多くありますが、仕組みを理解しつつ自分好みの音楽プレーヤーアプリを作ってみたくなったので、「ファイルに記録された音をそのまま出力する」ことにこだわった、WASAPI 排他モードを利用するビットパーフェクト再生専用の WPF デスクトップアプリ **PlayMuse** を作ってみました。
+Windows 向けとしては foobar2000 のようなビットパーフェクト再生可能なアプリケーションも数多くありますが、仕組みを理解しつつ自分好みの音楽プレーヤーアプリを作ってみたくなったので、「ファイルに記録された音をそのまま出力する」ことにこだわった、WASAPI 排他モードを利用するビットパーフェクト再生専用の WPF デスクトップアプリ **PlayMuse** を作ってみました。
 
 せっかくのロスレス音源であっても、Windows の共有モードでリサンプリングやビット深度変換が行われるのはもったいないので、デジタルの間だけでも原音忠実に再生してみたいと思った次第です。
 
@@ -260,6 +260,97 @@ private static bool AreFormatsCompatible(WaveFormat sourceFormat, WaveFormat dev
 }
 ```
 
+## デバイスによっては 24bit が「32bit」として扱われる
+
+排他モードの対応状況をログに出して確認していたところ、実際に Fiio DM15 R2R という USB DAC を USB DAC モードで接続した際、24bit/48kHz の音源が **16bit** でしか再生されない現象に遭遇しました。同じ構成で Sound Blaster G8 に繋いだ場合は問題なく 24bit で再生できていたので、原因はデバイス側のフォーマット対応にありそうだと当たりを付けて調査しました。
+
+`WAVEFORMATEXTENSIBLE` 構造体は、1 サンプルあたりのメモリ上のサイズ（コンテナビット数 `wBitsPerSample`）と、実際に意味を持つビット数（有効ビット数 `wValidBitsPerSample`）を別々に持てます。多くの USB DAC は 24bit のサンプルを「24-in-24」（コンテナも有効ビットも 24bit、3 バイト/サンプル）としてそのまま受け付けますが、内部の DSP／転送チップが 32bit 単位でのデータ処理を前提に設計されている機種では、**「24-in-32」（コンテナ 32bit・有効ビット 24bit、4 バイト/サンプルで下位 1 バイトは 0 埋め）という PCM パッキング形式のみを排他モードで受理する**ことがあります。
+
+従来の `ResolveBitPerfectFormat` は「24-in-24」しか候補にしていなかったため、この形式のみに対応する DAC では全ての候補が `IsFormatSupported` に失敗し、最終的に 16bit まで格下げされてフォールバックしていた、というのが今回の原因でした。サンプル値そのものは変わらず、単に格納先のメモリレイアウトが変わるだけなので、この形式を候補に追加してもビットパーフェクト性は損なわれません。保守性は低下しますが、今回は楽曲の再生方法について理解を深めるため、リフレクションで非公開フィールドを書き換えて「24-in-32」フォーマットを生成する方法を採用しました。
+
+### 24-in-32 フォーマットの生成
+
+NAudio の `WaveFormatExtensible` の公開コンストラクタは、コンテナビット数と有効ビット数を常に同一値にしてしまいます（`bits` を 32 で構築すると SubFormat も IEEE Float になってしまいます）。そこで、非公開フィールドをリフレクションで直接書き換えることで「コンテナ 32bit・有効ビット 24bit・SubFormat=PCM」の組み合わせを作っています。
+
+```csharp
+private static readonly FieldInfo WaveFormatExtensibleValidBitsField =
+	typeof(WaveFormatExtensible).GetField("wValidBitsPerSample", BindingFlags.NonPublic | BindingFlags.Instance)!;
+
+private static readonly FieldInfo WaveFormatExtensibleSubFormatField =
+	typeof(WaveFormatExtensible).GetField("subFormat", BindingFlags.NonPublic | BindingFlags.Instance)!;
+
+private static WaveFormatExtensible CreatePacked24In32Format(int sampleRate, int channels)
+{
+	// コンテナ32bitで生成することで blockAlign / averageBytesPerSecond を
+	// 32bitコンテナ基準で正しく計算させる。
+	var format = new WaveFormatExtensible(sampleRate, 32, channels);
+
+	// 既定では bits=32 により IEEE Float の SubFormat が設定されるため、
+	// PCM の SubFormat へ上書きし、有効ビット数を24に設定する。
+	WaveFormatExtensibleSubFormatField.SetValue(format, PcmSubFormatGuid);
+	WaveFormatExtensibleValidBitsField.SetValue(format, (short)24);
+
+	return format;
+}
+```
+
+`ResolveBitPerfectFormat` は、ファイルが 24bit PCM の場合にこの「24-in-32」もビットパーフェクト候補として `IsFormatSupported` で確認するように拡張しました。`FindBestSupportedFormat` によるフォールバック探索でも、16bit へ格下げされる前にこの形式を試すようにしています。
+
+### 無劣化なコンテナ変換
+
+24-in-32 が採用された場合、デコード結果（24bit, 3 バイト/サンプル）をそのまま `WasapiOut` へ渡すことはできません。サンプル値は変えずにメモリレイアウトだけを 32bit コンテナへ変換する、軽量な `IWaveProvider` を挟みます。
+
+```csharp
+internal sealed class Pack24In32WaveProvider(IWaveProvider source, WaveFormat packedFormat) : IWaveProvider
+{
+	private byte[] sourceBuffer = [];
+
+	public WaveFormat WaveFormat { get; } = packedFormat;
+
+	public int Read(byte[] buffer, int offset, int count)
+	{
+		// 出力(4バイト/サンプル)の要求量に対応する、ソース側(3バイト/サンプル)の読み取り量を算出する。
+		var sampleCount = count / 4;
+		var sourceBytesNeeded = sampleCount * 3;
+
+		if (sourceBuffer.Length < sourceBytesNeeded)
+		{
+			sourceBuffer = new byte[sourceBytesNeeded];
+		}
+
+		var sourceBytesRead = source.Read(sourceBuffer, 0, sourceBytesNeeded);
+		var samplesRead = sourceBytesRead / 3;
+
+		for (var i = 0; i < samplesRead; i++)
+		{
+			var srcIndex = i * 3;
+			var dstIndex = offset + (i * 4);
+
+			// 24bit有効データを32bitコンテナへ左詰め格納（下位1バイトは0埋め）。
+			buffer[dstIndex] = 0;
+			buffer[dstIndex + 1] = sourceBuffer[srcIndex];
+			buffer[dstIndex + 2] = sourceBuffer[srcIndex + 1];
+			buffer[dstIndex + 3] = sourceBuffer[srcIndex + 2];
+		}
+
+		return samplesRead * 4;
+	}
+}
+```
+
+`InitializeOutputCore` では、採用したビットパーフェクトフォーマットのコンテナビット数がファイル本来のビット数と異なる場合（＝24-in-32 採用時）に、この `Pack24In32WaveProvider` を出力チェーンへ挿入します。`MediaFoundationResampler` によるリサンプリングとは異なり、サンプル値の丸めや補間は一切行わないため `IsResampling` は `false` のままです。
+
+### UI 上での見え方の工夫
+
+24-in-32 を採用すると `OutputFormat.BitsPerSample` は 32 になるため、UI に単純に「32bit」とだけ表示すると「24bit のはずなのに 32bit に変換されている」という誤解を招きます。そこで、採用フォーマットが PCM か Float か、コンテナビット数と有効ビット数が異なるかを文字列化する `OutputFormatLabel` を追加し、`Extensible/PCM(24-in-32)` のような内訳を「出力」情報に併記するようにしました。
+
+```
+🔊 出力: 48 kHz / 32 bit / 2 ch / Extensible (Extensible/PCM(24-in-32))
+💎 ✓ ビットパーフェクト再生
+```
+
+これにより、実機（Fiio DM15 R2R、USB DAC モード・排他モード）でも 24bit 音源をビットパーフェクトで再生しつつ、UI 上でその実態（32bit コンテナへ無劣化で格納されているだけであること）を正しく伝えられるようになりました。
+
 ## ボリューム処理でも波形を破壊しない
 
 音量を下げる操作は本来、サンプル値を書き換える処理です。しかし音量が最大のときにまで無駄にスケーリング処理を挟んでしまうと、浮動小数点演算による微小な誤差が生じかねません。そこで `PcmVolumeProvider` では、音量が閾値（`0.999f`）以上のときは一切サンプルへ手を加えずにスルーし、音量を下げた場合のみ 8/16/24/32bit PCM および IEEE Float それぞれに対応したスケーリング処理を行うようにしています。
@@ -351,7 +442,7 @@ internal sealed class PcmVolumeProvider(IWaveProvider source) : IWaveProvider
 
 ビットパーフェクト再生に加えて、再生中の音声をリアルタイムに解析して16バンドのLED風スペクトラムバーを表示する機能も実装しています。単に「見た目が賑やかになる」だけでなく、実際にWASAPI出力へ渡している波形をそのまま解析対象にすることで、音量調整やリサンプリング後の「実際にデバイスへ送られる音」を可視化できるようにしています。
 
-### 出力パイプラインへの透過的なタップ
+### 出力パイプラインへの透過的な分岐
 
 `SpectrumTapProvider` を `WasapiOut.Init()` 直前に挿入し、再生データをそのまま出力しつつ、コピーを解析サービスへ渡します。再生経路そのものには一切手を加えないため、ビットパーフェクト性を損ないません。
 
@@ -430,6 +521,8 @@ isSilentTimeout = lastSampleTicks == NoSampleReceivedTicks
 
 ## おわりに
 
-普段何気なく聴いている音楽も、実は OS のオーディオパイプラインの中で意外と値が変換されていることが今回の実装を通してよく分かりました。WASAPI 排他モードや `WaveFormatExtensible` の SubFormat 比較など、普段の開発ではあまり触れない領域だったため実装には苦労しましたが、その分「ファイルに記録された値をそのまま送り届ける」という当初の目標を形にできたのは良い経験になりました。
+普段何気なく聴いている音楽も、実は OS のオーディオパイプラインの中で意外と値が変換されていることが今回の実装を通してよく分かりました。
 
-アプリ外観やスペクトラムアナライザー表示についてもこだわったので、見た目的にも楽しい音楽プレーヤーアプリができたと思います。今後はリピート再生やシャッフル再生、ギャップレス再生などの機能を追加してみたいです。
+WASAPI 排他モードや `WaveFormatExtensible` の SubFormat 比較、24-in-32 PCM パッキング形式など、普段の開発ではあまり触れない領域だったため実装には苦労しましたが、その分「ファイルに記録された値をそのまま送り届ける」という当初の目標を形にできたのは良い経験になりました。
+
+アプリの外観やスペクトラムアナライザー表示についてもこだわったので、見た目的にも楽しい音楽プレーヤーアプリができたと思います。今後はリピート再生やシャッフル再生、ギャップレス再生などの音楽をさらに楽しむ機能を追加してみたいです。

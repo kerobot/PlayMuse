@@ -779,6 +779,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         var sourceFormat = playbackService.SourceFormat;
         var outputFormat = playbackService.OutputFormat;
+        var outputFormatLabel = playbackService.OutputFormatLabel;
         var actualShareMode = playbackService.ActualShareMode;
         var isResampling = playbackService.IsResampling;
         var outputDevice = playbackService.OutputDevice;
@@ -789,10 +790,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
             $"📁 音源: {sourceFormat.SampleRate / 1000.0:0.#} kHz / {sourceFormat.BitsPerSample} bit / {sourceFormat.Channels} ch / {sourceFormat.Encoding}"
         };
 
-        // 出力情報
+        // 出力情報（デバイスへ実際に送出されるフォーマットの詳細ラベルも併記する。
+        // 24bitソースを32bitコンテナへ左詰め格納する「24-in-32」パッキング時は、
+        // "bit"表記だけでは実態と乖離するため、ラベルで内訳を明示する）
         if (outputFormat is not null)
         {
-            lines.Add($"🔊 出力: {outputFormat.SampleRate / 1000.0:0.#} kHz / {outputFormat.BitsPerSample} bit / {outputFormat.Channels} ch / {outputFormat.Encoding}");
+            var labelSuffix = outputFormatLabel is not null ? $" ({outputFormatLabel})" : string.Empty;
+            lines.Add($"🔊 出力: {outputFormat.SampleRate / 1000.0:0.#} kHz / {outputFormat.BitsPerSample} bit / {outputFormat.Channels} ch / {outputFormat.Encoding}{labelSuffix}");
         }
 
         // リサンプリング状態
