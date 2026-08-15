@@ -15,6 +15,12 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
     private const int LatencyMilliseconds = 200;
 
     /// <summary>
+    /// 排他モード解放後、Windowsオーディオエンジン側（特に外部SPDIF機器等）が
+    /// 実際にロックを解放するまでの猶予時間（ミリ秒）。
+    /// </summary>
+    private const int ExclusiveModeReleaseDelayMilliseconds = 50;
+
+    /// <summary>
     /// WASAPI排他モード関連のHResult値。
     /// NAudioの内部型(NAudio.CoreAudioApi.Interfaces.AudioClientErrorCode)と同値をここに転記し、
     /// 内部名前空間への直接依存を避ける。
@@ -509,6 +515,14 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
 
     private void TeardownOutput()
     {
+        if (logger.IsEnabled(LogLevel.Debug))
+        {
+            logger.LogDebug("TeardownOutput: 出力解放を開始します (ActualShareMode={ActualShareMode})", ActualShareMode);
+        }
+
+        // 排他モード判定用に現在のActualShareModeをローカル変数に退避
+        var wasExclusiveMode = ActualShareMode == AudioShareMode.Exclusive;
+
         if (output is not null)
         {
             output.PlaybackStopped -= OnPlaybackStopped;
@@ -516,14 +530,39 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
             try
             {
                 output.Stop();
+                if (logger.IsEnabled(LogLevel.Debug))
+                {
+                    logger.LogDebug("TeardownOutput: WasapiOutを停止しました。");
+                }
             }
-            catch
+            catch (Exception ex)
             {
-                // 破棄目的の停止のため、ここでの例外は無視する。
+                logger.LogWarning(ex, "TeardownOutput: WasapiOut停止時に例外が発生しましたが、破棄処理を続行します。");
             }
 
             output.Dispose();
             output = null;
+
+            // 排他モードだった場合のみ、オーディオエンジン側の解放猶予として短時間待機
+            if (wasExclusiveMode)
+            {
+                if (logger.IsEnabled(LogLevel.Debug))
+                {
+                    logger.LogDebug("TeardownOutput: 排他モード解放の猶予待機を開始します ({DelayMs}ms)", ExclusiveModeReleaseDelayMilliseconds);
+                }
+                Thread.Sleep(ExclusiveModeReleaseDelayMilliseconds);
+                if (logger.IsEnabled(LogLevel.Debug))
+                {
+                    logger.LogDebug("TeardownOutput: 排他モード解放の猶予待機を終了しました。");
+                }
+            }
+        }
+        else
+        {
+            if (logger.IsEnabled(LogLevel.Debug))
+            {
+                logger.LogDebug("TeardownOutput: 出力が既に解放済みのためスキップします。");
+            }
         }
 
         resampler?.Dispose();
@@ -535,6 +574,11 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
         currentMMDevice = null;
 
         spectrumAnalyzer?.Reset();
+
+        if (logger.IsEnabled(LogLevel.Debug))
+        {
+            logger.LogDebug("TeardownOutput: 出力解放が完了しました。");
+        }
     }
 
     private void OnPlaybackStopped(object? sender, StoppedEventArgs e)

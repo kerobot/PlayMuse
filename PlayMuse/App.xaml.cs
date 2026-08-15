@@ -40,7 +40,68 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
-        serviceProvider?.Dispose();
+        if (serviceProvider is not null)
+        {
+            ILogger<App>? logger = null;
+            try
+            {
+                // ロガーを取得してログ出力を開始
+                logger = serviceProvider.GetService<ILogger<App>>();
+                if (logger is not null && logger.IsEnabled(LogLevel.Information))
+                {
+                    logger.LogInformation("App.OnExit: アプリケーション終了処理を開始します。");
+                }
+
+                // IAudioPlaybackService を明示的に先行 Dispose
+                var playbackService = serviceProvider.GetService<IAudioPlaybackService>();
+                if (playbackService is not null)
+                {
+                    if (logger is not null && logger.IsEnabled(LogLevel.Information))
+                    {
+                        logger.LogInformation("App.OnExit: IAudioPlaybackService の先行解放を開始します。");
+                    }
+
+                    playbackService.Dispose();
+
+                    if (logger is not null && logger.IsEnabled(LogLevel.Information))
+                    {
+                        logger.LogInformation("App.OnExit: IAudioPlaybackService の先行解放が完了しました。");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // 先行Disposeでの例外はログ出力のみ（ユーザー通知は行わない）
+                if (logger is not null)
+                {
+                    logger.LogWarning(ex, "App.OnExit: IAudioPlaybackService の先行解放時に例外が発生しましたが、処理を続行します。");
+                }
+            }
+
+            try
+            {
+                if (logger is not null && logger.IsEnabled(LogLevel.Information))
+                {
+                    logger.LogInformation("App.OnExit: 残りのサービスコンテナを解放します。");
+                }
+
+                serviceProvider.Dispose();
+
+                if (logger is not null && logger.IsEnabled(LogLevel.Information))
+                {
+                    logger.LogInformation("App.OnExit: 終了処理が完了しました。");
+                }
+            }
+            catch (Exception ex)
+            {
+                // serviceProvider.Dispose() での例外はログ出力のみ
+                if (logger is not null)
+                {
+                    logger.LogWarning(ex, "App.OnExit: サービスコンテナ解放時に例外が発生しました。");
+                }
+            }
+        }
+
         base.OnExit(e);
     }
 

@@ -3,6 +3,7 @@ using System.Collections.Specialized;
 using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Logging;
 using PlayMuse.Core.Models;
 using PlayMuse.Core.Services;
 
@@ -22,6 +23,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private readonly IMetadataService metadataService;
     private readonly ISettingsService settingsService;
     private readonly ISpectrumAnalyzerService spectrumAnalyzer;
+    private readonly ILogger<MainViewModel> logger;
     private readonly bool isInitializing = true;
     private string? currentPlaylistFilePath;
     private int trackUnavailableSkipCount;
@@ -79,7 +81,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         IDispatcherService dispatcherService,
         IMetadataService metadataService,
         ISettingsService settingsService,
-        ISpectrumAnalyzerService spectrumAnalyzer)
+        ISpectrumAnalyzerService spectrumAnalyzer,
+        ILogger<MainViewModel>? logger = null)
     {
         this.playbackService = playbackService;
         this.deviceService = deviceService;
@@ -89,6 +92,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         this.metadataService = metadataService;
         this.settingsService = settingsService;
         this.spectrumAnalyzer = spectrumAnalyzer;
+        this.logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<MainViewModel>.Instance;
 
         this.playbackService.StateChanged += OnPlaybackStateChanged;
         this.playbackService.PlaybackCompleted += OnPlaybackCompleted;
@@ -821,6 +825,18 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        if (logger.IsEnabled(LogLevel.Information))
+        {
+            logger.LogInformation("MainViewModel.Dispose: 再生停止処理を開始します。");
+        }
+
+        playbackService.Stop();
+
+        if (logger.IsEnabled(LogLevel.Information))
+        {
+            logger.LogInformation("MainViewModel.Dispose: 再生停止処理が完了しました。");
+        }
+
         playbackService.StateChanged -= OnPlaybackStateChanged;
         playbackService.PlaybackCompleted -= OnPlaybackCompleted;
         playbackService.ErrorOccurred -= OnPlaybackErrorOccurred;
