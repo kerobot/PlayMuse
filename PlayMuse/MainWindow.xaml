@@ -7,7 +7,7 @@
         xmlns:converters="clr-namespace:PlayMuse.Converters"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         mc:Ignorable="d"
-        Title="PlayMuse" Height="580" Width="560" MinHeight="580" MinWidth="560"
+        Title="PlayMuse" Height="700" Width="560" MinHeight="700" MinWidth="560"
         WindowStyle="None" ResizeMode="CanResizeWithGrip" AllowsTransparency="False"
         Background="{StaticResource MetalPanelBrush}">
     <shell:WindowChrome.WindowChrome>
