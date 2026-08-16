@@ -43,6 +43,13 @@
             </Style.Triggers>
         </Style>
     </Window.Resources>
+    <Window.InputBindings>
+        <KeyBinding Key="MediaPlayPause" Command="{Binding PlayPauseCommand}"/>
+        <KeyBinding Key="MediaNextTrack" Command="{Binding NextCommand}"/>
+        <KeyBinding Key="MediaPreviousTrack" Command="{Binding PreviousCommand}"/>
+        <KeyBinding Key="VolumeUp" Command="{Binding IncreaseVolumeCommand}"/>
+        <KeyBinding Key="VolumeDown" Command="{Binding DecreaseVolumeCommand}"/>
+    </Window.InputBindings>
     <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
     <Grid>
         <Grid.RowDefinitions>

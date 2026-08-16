@@ -447,6 +447,26 @@ public partial class MainViewModel : ObservableObject, IDisposable
         SaveSettingsIfReady();
     }
 
+    private const double VolumeStep = 0.05;
+
+    /// <summary>
+    /// 音量を VolumeStep 分上げる。上限は 1.0 でクランプされる。
+    /// </summary>
+    [RelayCommand]
+    private void IncreaseVolume()
+    {
+        Volume = Math.Clamp(Volume + VolumeStep, 0.0, 1.0);
+    }
+
+    /// <summary>
+    /// 音量を VolumeStep 分下げる。下限は 0.0 でクランプされる。
+    /// </summary>
+    [RelayCommand]
+    private void DecreaseVolume()
+    {
+        Volume = Math.Clamp(Volume - VolumeStep, 0.0, 1.0);
+    }
+
     partial void OnSelectedDeviceChanged(AudioDeviceInfo? value)
     {
         if (value is not null)

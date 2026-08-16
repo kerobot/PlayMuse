@@ -369,4 +369,48 @@ public class MainViewModelTests
 
         Assert.True(fixture.PlaylistService.IsLoopEnabled);
     }
+
+    [Fact]
+    public void IncreaseVolumeCommand_IncreasesVolumeBy0Point05()
+    {
+        var fixture = CreateFixture();
+        fixture.ViewModel.Volume = 0.5;
+
+        fixture.ViewModel.IncreaseVolumeCommand.Execute(null);
+
+        Assert.Equal(0.55, fixture.ViewModel.Volume, precision: 10);
+    }
+
+    [Fact]
+    public void IncreaseVolumeCommand_ClampsVolumeAt1Point0()
+    {
+        var fixture = CreateFixture();
+        fixture.ViewModel.Volume = 0.98;
+
+        fixture.ViewModel.IncreaseVolumeCommand.Execute(null);
+
+        Assert.Equal(1.0, fixture.ViewModel.Volume, precision: 10);
+    }
+
+    [Fact]
+    public void DecreaseVolumeCommand_DecreasesVolumeBy0Point05()
+    {
+        var fixture = CreateFixture();
+        fixture.ViewModel.Volume = 0.5;
+
+        fixture.ViewModel.DecreaseVolumeCommand.Execute(null);
+
+        Assert.Equal(0.45, fixture.ViewModel.Volume, precision: 10);
+    }
+
+    [Fact]
+    public void DecreaseVolumeCommand_ClampsVolumeAt0Point0()
+    {
+        var fixture = CreateFixture();
+        fixture.ViewModel.Volume = 0.02;
+
+        fixture.ViewModel.DecreaseVolumeCommand.Execute(null);
+
+        Assert.Equal(0.0, fixture.ViewModel.Volume, precision: 10);
+    }
 }
