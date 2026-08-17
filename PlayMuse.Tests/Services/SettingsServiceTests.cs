@@ -17,6 +17,11 @@ public class SettingsServiceTests : IDisposable
         Assert.Equal(AudioShareMode.Shared, settings.ShareMode);
         Assert.Null(settings.OutputDeviceId);
         Assert.Equal(1.0f, settings.Volume);
+        Assert.Null(settings.WindowLeft);
+        Assert.Null(settings.WindowTop);
+        Assert.Null(settings.WindowWidth);
+        Assert.Null(settings.WindowHeight);
+        Assert.Null(settings.WindowState);
     }
 
     [Fact]
@@ -28,6 +33,11 @@ public class SettingsServiceTests : IDisposable
             ShareMode = AudioShareMode.Exclusive,
             OutputDeviceId = "device-123",
             Volume = 0.42f,
+            WindowLeft = 100.5,
+            WindowTop = 200.5,
+            WindowWidth = 800,
+            WindowHeight = 600,
+            WindowState = "Maximized",
         };
 
         sut.Save(original);
@@ -36,6 +46,11 @@ public class SettingsServiceTests : IDisposable
         Assert.Equal(original.ShareMode, loaded.ShareMode);
         Assert.Equal(original.OutputDeviceId, loaded.OutputDeviceId);
         Assert.Equal(original.Volume, loaded.Volume);
+        Assert.Equal(original.WindowLeft, loaded.WindowLeft);
+        Assert.Equal(original.WindowTop, loaded.WindowTop);
+        Assert.Equal(original.WindowWidth, loaded.WindowWidth);
+        Assert.Equal(original.WindowHeight, loaded.WindowHeight);
+        Assert.Equal(original.WindowState, loaded.WindowState);
     }
 
     [Fact]

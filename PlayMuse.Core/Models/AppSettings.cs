@@ -24,4 +24,30 @@ public sealed class AppSettings
     /// SPECTRUM ANALYZER表示欄の開閉状態。
     /// </summary>
     public bool IsSpectrumVisible { get; set; } = true;
+
+    /// <summary>
+    /// ウィンドウの左端位置（画面座標）。未保存時（初回起動）はnull。
+    /// </summary>
+    public double? WindowLeft { get; set; }
+
+    /// <summary>
+    /// ウィンドウの上端位置（画面座標）。未保存時（初回起動）はnull。
+    /// </summary>
+    public double? WindowTop { get; set; }
+
+    /// <summary>
+    /// ウィンドウの幅。未保存時（初回起動）はnull。
+    /// </summary>
+    public double? WindowWidth { get; set; }
+
+    /// <summary>
+    /// ウィンドウの高さ。未保存時（初回起動）はnull。
+    /// </summary>
+    public double? WindowHeight { get; set; }
+
+    /// <summary>
+    /// ウィンドウの表示状態（"Normal" / "Maximized"）。未保存時（初回起動）はnull。
+    /// PlayMuse.CoreはUIフレームワーク非依存のため、System.Windows.WindowStateではなく文字列で保持する。
+    /// </summary>
+    public string? WindowState { get; set; }
 }

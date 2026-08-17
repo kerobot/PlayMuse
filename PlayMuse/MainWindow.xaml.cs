@@ -6,6 +6,7 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using PlayMuse.Core.Models;
+using PlayMuse.Core.Services;
 using PlayMuse.Core.ViewModels;
 
 namespace PlayMuse;
@@ -32,6 +33,7 @@ public partial class MainWindow : Window
     ];
 
     private readonly MainViewModel viewModel;
+    private readonly ISettingsService settingsService;
     private readonly DispatcherTimer positionTimer;
     private readonly DispatcherTimer autoScrollTimer;
     private readonly DispatcherTimer spectrumTimer;
@@ -46,10 +48,11 @@ public partial class MainWindow : Window
     private ScrollViewer? autoScrollViewer;
     private double autoScrollDirection;
 
-    public MainWindow(MainViewModel viewModel)
+    public MainWindow(MainViewModel viewModel, ISettingsService settingsService)
     {
         InitializeComponent();
         DataContext = this.viewModel = viewModel;
+        this.settingsService = settingsService;
 
         // 再生位置の表示更新はViewが所有するタイマーから行う。
         // PlayMuse.CoreはUIフレームワーク非依存に保つため、DispatcherTimerはここに置く。
@@ -72,6 +75,7 @@ public partial class MainWindow : Window
         spectrumTimer.Tick += (_, _) => RenderSpectrum();
 
         BuildSpectrumGrid();
+        RestoreWindowBounds();
 
         Loaded += (_, _) => positionTimer.Start();
         Loaded += (_, _) =>
@@ -79,6 +83,7 @@ public partial class MainWindow : Window
             ToggleTrackInfoPanel(viewModel.IsTrackInfoVisible, animate: false);
             ToggleSpectrumPanel(viewModel.IsSpectrumVisible, animate: false);
         };
+        Closing += (_, _) => SaveWindowBounds();
         Closed += (_, _) =>
         {
             positionTimer.Stop();
@@ -99,6 +104,86 @@ public partial class MainWindow : Window
                     break;
             }
         };
+    }
+
+    /// <summary>
+    /// アプリ終了時に保存されたウィンドウの位置・サイズ・表示状態を復元する。
+    /// 保存値が現在の仮想画面領域と交差しない場合（切断されたモニター等）は、プライマリディスプレイ中央にフォールバックする。
+    /// </summary>
+    private void RestoreWindowBounds()
+    {
+        var settings = settingsService.Load();
+
+        if (settings.WindowLeft is null || settings.WindowTop is null ||
+            settings.WindowWidth is null || settings.WindowHeight is null)
+        {
+            return;
+        }
+
+        var left = settings.WindowLeft.Value;
+        var top = settings.WindowTop.Value;
+        var width = Math.Max(settings.WindowWidth.Value, MinWidth);
+        var height = Math.Max(settings.WindowHeight.Value, MinHeight);
+
+        var virtualLeft = SystemParameters.VirtualScreenLeft;
+        var virtualTop = SystemParameters.VirtualScreenTop;
+        var virtualWidth = SystemParameters.VirtualScreenWidth;
+        var virtualHeight = SystemParameters.VirtualScreenHeight;
+
+        var savedBounds = new Rect(left, top, width, height);
+        var virtualBounds = new Rect(virtualLeft, virtualTop, virtualWidth, virtualHeight);
+
+        if (!virtualBounds.IntersectsWith(savedBounds))
+        {
+            // 保存時のモニターが現在存在しない（切断された等）ため、プライマリディスプレイ中央に配置する。
+            WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            Width = width;
+            Height = height;
+        }
+        else
+        {
+            Left = left;
+            Top = top;
+            Width = width;
+            Height = height;
+        }
+
+        if (settings.WindowState == nameof(System.Windows.WindowState.Maximized))
+        {
+            WindowState = System.Windows.WindowState.Maximized;
+        }
+    }
+
+    /// <summary>
+    /// 現在のウィンドウの位置・サイズ・表示状態を設定へ保存する。最大化/最小化中は<see cref="Window.RestoreBounds"/>を使用する。
+    /// 最小化状態の復元は対象外のため、通常表示("Normal")として保存する。
+    /// </summary>
+    private void SaveWindowBounds()
+    {
+        Rect bounds;
+        string windowStateText;
+
+        if (WindowState == System.Windows.WindowState.Normal)
+        {
+            bounds = new Rect(Left, Top, Width, Height);
+            windowStateText = nameof(System.Windows.WindowState.Normal);
+        }
+        else
+        {
+            bounds = RestoreBounds;
+            windowStateText = WindowState == System.Windows.WindowState.Maximized
+                ? nameof(System.Windows.WindowState.Maximized)
+                : nameof(System.Windows.WindowState.Normal);
+        }
+
+        var settings = settingsService.Load();
+        settings.WindowLeft = bounds.Left;
+        settings.WindowTop = bounds.Top;
+        settings.WindowWidth = bounds.Width;
+        settings.WindowHeight = bounds.Height;
+        settings.WindowState = windowStateText;
+
+        settingsService.Save(settings);
     }
 
     /// <summary>
