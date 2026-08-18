@@ -88,10 +88,74 @@ public class WavFormatNormalizerTests
         Assert.Null(stream);
     }
 
+    [Fact]
+    public void TryGetEffectiveBitsPerSample_24In32ExtensibleWav_ReturnsValidBitsPerSample()
+    {
+        var path = CreateTempWavPath();
+        try
+        {
+            // 24bit有効データが32bitコンテナへ格納された24-in-32形式
+            CreateExtensibleWav(path, sampleRate: 96000, bitsPerSample: 32, channels: 2, subFormat: PcmSubFormatGuid, validBitsPerSample: 24);
+
+            var effectiveBits = WavFormatNormalizer.TryGetEffectiveBitsPerSample(path);
+
+            Assert.Equal(24, effectiveBits);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void TryGetEffectiveBitsPerSample_StandardExtensibleWav_ReturnsContainerBitsPerSample()
+    {
+        var path = CreateTempWavPath();
+        try
+        {
+            CreateExtensibleWav(path, sampleRate: 44100, bitsPerSample: 24, channels: 2, subFormat: PcmSubFormatGuid);
+
+            var effectiveBits = WavFormatNormalizer.TryGetEffectiveBitsPerSample(path);
+
+            Assert.Equal(24, effectiveBits);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void TryGetEffectiveBitsPerSample_StandardPcmWav_ReturnsNull()
+    {
+        var path = CreateTempWavPath();
+        try
+        {
+            CreateStandardPcmWav(path, sampleRate: 44100, bitsPerSample: 16, channels: 2);
+
+            var effectiveBits = WavFormatNormalizer.TryGetEffectiveBitsPerSample(path);
+
+            // 標準PCM(非Extensible)WAVはExtensibleヘッダーを持たないためnullを返す
+            Assert.Null(effectiveBits);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void TryGetEffectiveBitsPerSample_NonWavExtension_ReturnsNull()
+    {
+        var effectiveBits = WavFormatNormalizer.TryGetEffectiveBitsPerSample("song.mp3");
+
+        Assert.Null(effectiveBits);
+    }
+
     private static string CreateTempWavPath()
         => Path.Combine(Path.GetTempPath(), $"playmuse_test_{Guid.NewGuid():N}.wav");
 
-    private static void CreateExtensibleWav(string path, int sampleRate, int bitsPerSample, int channels, Guid subFormat)
+    private static void CreateExtensibleWav(string path, int sampleRate, int bitsPerSample, int channels, Guid subFormat, int? validBitsPerSample = null)
     {
         var blockAlign = channels * (bitsPerSample / 8);
         var byteRate = sampleRate * blockAlign;
@@ -115,7 +179,7 @@ public class WavFormatNormalizerTests
         bw.Write((short)blockAlign);
         bw.Write((short)bitsPerSample);
         bw.Write((short)22); // cbSize
-        bw.Write((short)bitsPerSample); // valid bits per sample
+        bw.Write((short)(validBitsPerSample ?? bitsPerSample)); // valid bits per sample
         bw.Write(0); // channel mask
         bw.Write(subFormat.ToByteArray());
 

@@ -26,6 +26,8 @@ public sealed class FakeAudioPlaybackService : IAudioPlaybackService
 
     public WaveFormat? SourceFormat => null;
 
+    public int? SourceDisplayBitsPerSample => null;
+
     public WaveFormat? OutputFormat => null;
 
     public string? OutputFormatLabel => null;

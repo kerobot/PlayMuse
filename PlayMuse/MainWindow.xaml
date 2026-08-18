@@ -19,7 +19,7 @@
         <converters:NullToVisibilityConverter x:Key="NullToVisibilityConverter"/>
         <converters:ByteArrayToImageSourceConverter x:Key="ByteArrayToImageSourceConverter"/>
         <converters:SampleRateToStringConverter x:Key="SampleRateToStringConverter"/>
-        <converters:BitsPerSampleToStringConverter x:Key="BitsPerSampleToStringConverter"/>
+        <converters:AudioFormatToStringConverter x:Key="AudioFormatToStringConverter"/>
         <converters:DraggingOpacityConverter x:Key="DraggingOpacityConverter"/>
         <converters:CurrentTrackForegroundConverter x:Key="CurrentTrackForegroundConverter"/>
         <converters:CurrentTrackIconVisibilityConverter x:Key="CurrentTrackIconVisibilityConverter"/>
@@ -184,7 +184,14 @@
                                 <TextBlock Text=" ・ " FontSize="10" Opacity="0.4"/>
                                 <TextBlock Text="{Binding SampleRate, Converter={StaticResource SampleRateToStringConverter}}" FontSize="10" Opacity="0.6"/>
                                 <TextBlock Text=" / " FontSize="10" Opacity="0.4"/>
-                                <TextBlock Text="{Binding BitsPerSample, Converter={StaticResource BitsPerSampleToStringConverter}}" FontSize="10" Opacity="0.6"/>
+                                <TextBlock FontSize="10" Opacity="0.6">
+                                    <TextBlock.Text>
+                                        <MultiBinding Converter="{StaticResource AudioFormatToStringConverter}">
+                                            <Binding Path="BitsPerSample"/>
+                                            <Binding Path="ContainerFormatLabel"/>
+                                        </MultiBinding>
+                                    </TextBlock.Text>
+                                </TextBlock>
                             </StackPanel>
                         </StackPanel>
                         <Button Grid.Column="4" Style="{StaticResource IconButtonStyle}" VerticalAlignment="Center"

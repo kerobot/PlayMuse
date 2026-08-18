@@ -58,4 +58,33 @@ public class SupportedAudioFormatsTests
         Assert.Contains("*.wav", filter);
         Assert.Contains("*.aac", filter);
     }
+
+    [Theory]
+    [InlineData("song.mp3")]
+    [InlineData("song.aac")]
+    [InlineData("song.m4a")]
+    [InlineData("song.MP3")]
+    public void IsLossyFormat_LossyExtensions_ReturnsTrue(string filePath)
+    {
+        Assert.True(SupportedAudioFormats.IsLossyFormat(filePath));
+    }
+
+    [Theory]
+    [InlineData("song.wav")]
+    [InlineData("song.flac")]
+    public void IsLossyFormat_LosslessExtensions_ReturnsFalse(string filePath)
+    {
+        Assert.False(SupportedAudioFormats.IsLossyFormat(filePath));
+    }
+
+    [Theory]
+    [InlineData("song.mp3", "MP3")]
+    [InlineData("song.m4a", "M4A")]
+    [InlineData("song.aac", "AAC")]
+    [InlineData("song.wav", "WAV")]
+    [InlineData("song.flac", "FLAC")]
+    public void GetDisplayName_SupportedExtensions_ReturnsExpectedDisplayName(string filePath, string expected)
+    {
+        Assert.Equal(expected, SupportedAudioFormats.GetDisplayName(filePath));
+    }
 }

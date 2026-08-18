@@ -29,4 +29,8 @@
     <ProjectReference Include="..\PlayMuse.Core\PlayMuse.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Converters\" />
+  </ItemGroup>
+
 </Project>

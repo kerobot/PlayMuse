@@ -48,6 +48,7 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
     private float desiredVolume = 1.0f;
     private bool isUserStopped;
     private Track? pendingTrack;
+    private string? loadedTrackFilePath;
 
     public PlaybackState State
     {
@@ -105,6 +106,29 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
 
     public WaveFormat? SourceFormat => reader?.WaveFormat;
 
+    public int? SourceDisplayBitsPerSample
+    {
+        get
+        {
+            if (reader is null)
+            {
+                return null;
+            }
+
+            if (loadedTrackFilePath is not null &&
+                string.Equals(Path.GetExtension(loadedTrackFilePath), ".wav", StringComparison.OrdinalIgnoreCase))
+            {
+                var effectiveBits = WavFormatNormalizer.TryGetEffectiveBitsPerSample(loadedTrackFilePath);
+                if (effectiveBits.HasValue)
+                {
+                    return effectiveBits.Value;
+                }
+            }
+
+            return reader.WaveFormat?.BitsPerSample;
+        }
+    }
+
     public WaveFormat? OutputFormat { get; private set; }
 
     public string? OutputFormatLabel { get; private set; }
@@ -127,6 +151,7 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
         TeardownOutput();
         reader?.Dispose();
         reader = null;
+        loadedTrackFilePath = null;
 
         pendingTrack = track;
         State = PlaybackState.Stopped;
@@ -153,12 +178,14 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
             // WAV Extensible 形式の正規化は NativeAudioFileReaderFactory 内で自動的に行われる。
             var newReader = NativeAudioFileReaderFactory.Create(track.FilePath);
             reader = newReader;
+            loadedTrackFilePath = track.FilePath;
             track.Duration = newReader.TotalTime;
             return true;
         }
         catch (Exception ex)
         {
             reader = null;
+            loadedTrackFilePath = null;
             State = PlaybackState.Stopped;
             RaiseError($"'{track.FileName}' を読み込めませんでした。対応していないファイル形式か、ファイルが破損している可能性があります。", ex, AudioErrorKind.TrackUnavailable);
             return false;

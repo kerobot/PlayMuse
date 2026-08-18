@@ -37,6 +37,12 @@ public interface IAudioPlaybackService : IDisposable
     WaveFormat? SourceFormat { get; }
 
     /// <summary>
+    /// 表示用のビット深度。WAVE_FORMAT_EXTENSIBLEのWAVの場合は有効ビット数(wValidBitsPerSample)を返す。
+    /// それ以外の場合は <see cref="SourceFormat"/> の BitsPerSample と同じ。
+    /// </summary>
+    int? SourceDisplayBitsPerSample { get; }
+
+    /// <summary>
     /// デバイスに出力されるオーディオフォーマット。
     /// リサンプリングが行われている場合は変換後のフォーマット、行われていない場合はSourceFormatと同じ。
     /// </summary>

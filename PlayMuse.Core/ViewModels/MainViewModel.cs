@@ -803,6 +803,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
 
         var sourceFormat = playbackService.SourceFormat;
+        var isLossySource = SupportedAudioFormats.IsLossyFormat(CurrentTrack.FilePath);
+        var sourceDisplayBitsPerSample = playbackService.SourceDisplayBitsPerSample ?? sourceFormat.BitsPerSample;
         var outputFormat = playbackService.OutputFormat;
         var outputFormatLabel = playbackService.OutputFormatLabel;
         var actualShareMode = playbackService.ActualShareMode;
@@ -812,7 +814,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
         var lines = new List<string>
         {
             // ファイル情報
-            $"📁 音源: {sourceFormat.SampleRate / 1000.0:0.#} kHz / {sourceFormat.BitsPerSample} bit / {sourceFormat.Channels} ch / {sourceFormat.Encoding}"
+            // 非可逆圧縮形式(MP3/AAC/M4Aなど)はビット深度の概念を持たないため、フォーマット名のみ表示する。
+            // 可逆形式(WAV/FLACなど)はビット深度に続けてフォーマット名も表示する(例: 24bit FLAC)。
+            isLossySource
+                ? $"📁 音源: {sourceFormat.SampleRate / 1000.0:0.#} kHz / {SupportedAudioFormats.GetDisplayName(CurrentTrack.FilePath)} / {sourceFormat.Channels} ch / {sourceFormat.Encoding}"
+                : $"📁 音源: {sourceFormat.SampleRate / 1000.0:0.#} kHz / {sourceDisplayBitsPerSample} bit {SupportedAudioFormats.GetDisplayName(CurrentTrack.FilePath)} / {sourceFormat.Channels} ch / {sourceFormat.Encoding}"
         };
 
         // 出力情報（デバイスへ実際に送出されるフォーマットの詳細ラベルも併記する。
@@ -840,7 +846,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         lines.Add($"🎧 デバイス: {deviceName} ({shareModeText}モード)");
 
         // ビットパーフェクト判定
-        var isBitPerfect = !isResampling && actualShareMode == AudioShareMode.Exclusive;
+        // 非可逆圧縮形式(MP3/AAC/M4Aなど)は、そもそも元データが不可逆変換されているためビットパーフェクトではない
+        var isBitPerfect = !isLossySource && !isResampling && actualShareMode == AudioShareMode.Exclusive;
         var bitPerfectText = isBitPerfect ? "✓ ビットパーフェクト再生" : "△ 非ビットパーフェクト";
         lines.Add($"💎 {bitPerfectText}");
 

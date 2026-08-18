@@ -1,4 +1,5 @@
 using NAudio.Wave;
+using System.Reflection;
 
 namespace PlayMuse.Core.Services;
 
@@ -25,6 +26,13 @@ namespace PlayMuse.Core.Services;
 public static class WavFormatNormalizer
 {
     /// <summary>
+    /// <see cref="WaveFormatExtensible"/> の非公開privateフィールド wValidBitsPerSample。
+    /// NAudioのバージョン2.3.0ではこのフィールドへの公開プロパティが存在しないため、リフレクションで取得する。
+    /// </summary>
+    private static readonly FieldInfo? WaveFormatExtensibleValidBitsField =
+        typeof(WaveFormatExtensible).GetField("wValidBitsPerSample", BindingFlags.NonPublic | BindingFlags.Instance);
+
+    /// <summary>
     /// PCM フォーマットの SubFormat GUID: {00000001-0000-0010-8000-00aa00389b71}
     /// </summary>
     private static readonly Guid PcmSubFormatGuid = new("00000001-0000-0010-8000-00aa00389b71");
@@ -33,6 +41,61 @@ public static class WavFormatNormalizer
     /// IEEE Float フォーマットの SubFormat GUID: {00000003-0000-0010-8000-00aa00389b71}
     /// </summary>
     private static readonly Guid IeeeFloatSubFormatGuid = new("00000003-0000-0010-8000-00aa00389b71");
+
+    /// <summary>
+    /// 指定されたWAVファイルがWAVE_FORMAT_EXTENSIBLEの場合、wValidBitsPerSampleから有効ビット数を取得する。
+    /// 表示専用。デコード用のWaveFormatには影響を与えない。
+    /// </summary>
+    /// <param name="filePath">WAVファイルのパス。</param>
+    /// <returns>
+    /// 有効ビット数が取得できた場合はその値。
+    /// 取得できない場合(非WAV、非Extensible、ExtraDataなし、無効値等)はnull。
+    /// </returns>
+    public static int? TryGetEffectiveBitsPerSample(string filePath)
+    {
+        if (!string.Equals(Path.GetExtension(filePath), ".wav", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        WaveFileReader? reader = null;
+        try
+        {
+            reader = new WaveFileReader(filePath);
+            var format = reader.WaveFormat;
+
+            if (format.Encoding != WaveFormatEncoding.Extensible)
+            {
+                return null;
+            }
+
+            // WaveFormatExtensible の ExtraData 構造:
+            // offset 0-1: wValidBitsPerSample (2 bytes)
+            // offset 2-5: dwChannelMask (4 bytes)
+            // offset 6-21: SubFormat GUID (16 bytes)
+            if (!TryGetExtensibleExtraData(format, out var validBitsPerSample, out _))
+            {
+                return null;
+            }
+
+            // validBitsPerSample が 0 の場合はコンテナ幅と同じを意味する慣習があるため null とする
+            // validBitsPerSample がコンテナ幅を超える場合も無効とする
+            if (validBitsPerSample > 0 && validBitsPerSample <= format.BitsPerSample)
+            {
+                return validBitsPerSample;
+            }
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+        finally
+        {
+            reader?.Dispose();
+        }
+    }
 
     /// <summary>
     /// 指定ファイルが WAVE_FORMAT_EXTENSIBLE(SubFormat が PCM/IEEE Float)の WAV であれば、
@@ -71,7 +134,7 @@ public static class WavFormatNormalizer
             return null;
         }
 
-        if (!TryGetSubFormat(sourceFormat, out var subFormat))
+        if (!TryGetExtensibleExtraData(sourceFormat, out _, out var subFormat))
         {
             reader.Dispose();
             return null;
@@ -105,6 +168,46 @@ public static class WavFormatNormalizer
     }
 
     /// <summary>
+    /// WaveFormatEncoding.Extensible なフォーマットから wValidBitsPerSample と SubFormat GUID を取得する。
+    /// <see cref="WaveFileReader"/> はヘッダ解析結果として <see cref="WaveFormatExtensible"/> ではなく
+    /// <see cref="WaveFormatExtraData"/>(cbSize 以降の生バイト列を保持する型)を返すため、
+    /// その ExtraData から wValidBitsPerSample(オフセット0, 2byte) と SubFormat GUID(オフセット6, 16byte: validBitsPerSample(2)+channelMask(4)の直後)を読み取る。
+    /// </summary>
+    private static bool TryGetExtensibleExtraData(WaveFormat format, out int validBitsPerSample, out Guid subFormat)
+    {
+        switch (format)
+        {
+            case WaveFormatExtensible extensible:
+                // NAudio 2.3.0 では wValidBitsPerSample はprivateフィールドのため、リフレクションで取得
+                if (WaveFormatExtensibleValidBitsField != null)
+                {
+                    var validBits = WaveFormatExtensibleValidBitsField.GetValue(extensible);
+                    validBitsPerSample = validBits is short s ? s : 0;
+                }
+                else
+                {
+                    validBitsPerSample = 0;
+                }
+                subFormat = extensible.SubFormat;
+                return true;
+
+            case WaveFormatExtraData extraData when extraData.ExtraSize >= 22:
+                // ExtraData 構造:
+                // offset 0-1: wValidBitsPerSample (2 bytes, little-endian)
+                // offset 2-5: dwChannelMask (4 bytes)
+                // offset 6-21: SubFormat GUID (16 bytes)
+                validBitsPerSample = BitConverter.ToInt16(extraData.ExtraData.AsSpan(0, 2));
+                subFormat = new Guid(extraData.ExtraData.AsSpan(6, 16));
+                return true;
+
+            default:
+                validBitsPerSample = 0;
+                subFormat = default;
+                return false;
+        }
+    }
+
+    /// <summary>
     /// WaveFormatEncoding.Extensible なフォーマットから SubFormat GUID を取得する。
     /// <see cref="WaveFileReader"/> はヘッダ解析結果として <see cref="WaveFormatExtensible"/> ではなく
     /// <see cref="WaveFormatExtraData"/>(cbSize 以降の生バイト列を保持する型)を返すため、
@@ -112,20 +215,13 @@ public static class WavFormatNormalizer
     /// </summary>
     private static bool TryGetSubFormat(WaveFormat format, out Guid subFormat)
     {
-        switch (format)
+        if (TryGetExtensibleExtraData(format, out _, out subFormat))
         {
-            case WaveFormatExtensible extensible:
-                subFormat = extensible.SubFormat;
-                return true;
-
-            case WaveFormatExtraData extraData when extraData.ExtraSize >= 22:
-                subFormat = new Guid(extraData.ExtraData.AsSpan(6, 16));
-                return true;
-
-            default:
-                subFormat = default;
-                return false;
+            return true;
         }
+
+        subFormat = default;
+        return false;
     }
 
     /// <summary>

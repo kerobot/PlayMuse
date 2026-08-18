@@ -48,6 +48,16 @@ public sealed class MetadataService(IDispatcherService dispatcherService) : IMet
                     bitsPerSample = fileBitsPerSample;
                 }
 
+                // WAVファイルの場合、WAVE_FORMAT_EXTENSIBLE形式のwValidBitsPerSampleを取得して上書き
+                if (string.Equals(Path.GetExtension(track.FilePath), ".wav", StringComparison.OrdinalIgnoreCase))
+                {
+                    var effectiveBits = WavFormatNormalizer.TryGetEffectiveBitsPerSample(track.FilePath);
+                    if (effectiveBits.HasValue)
+                    {
+                        bitsPerSample = effectiveBits.Value;
+                    }
+                }
+
                 if (tag.Pictures is { Length: > 0 } pictures)
                 {
                     albumArtData = pictures[0].Data.Data;
@@ -57,6 +67,16 @@ public sealed class MetadataService(IDispatcherService dispatcherService) : IMet
             {
                 // タグ読み取り失敗時は、Trackコンストラクタで設定済みのファイル名ベース表示を維持する。
             }
+
+            // 非可逆圧縮形式(MP3/AAC/M4Aなど)はビット深度の概念を持たないため、
+            // NAudio/TagLibが返す値に関わらずビット深度を無効化する。
+            // 可逆形式も含め、常にファイル形式名をラベルとして付与する(例: 48kHz / 24bit / FLAC)。
+            if (SupportedAudioFormats.IsLossyFormat(track.FilePath))
+            {
+                bitsPerSample = 0;
+            }
+
+            var containerFormatLabel = SupportedAudioFormats.GetDisplayName(track.FilePath);
 
             // Trackのプロパティ変更通知はUIスレッドで発生させる必要があるため、Dispatcherへマーシャリングする。
             dispatcherService.Invoke(() =>
@@ -76,6 +96,7 @@ public sealed class MetadataService(IDispatcherService dispatcherService) : IMet
 
                 track.SampleRate = sampleRate;
                 track.BitsPerSample = bitsPerSample;
+                track.ContainerFormatLabel = containerFormatLabel;
                 track.AlbumArtData = albumArtData;
             });
         }, cancellationToken);
