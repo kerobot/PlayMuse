@@ -25,6 +25,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private readonly ISpectrumAnalyzerService spectrumAnalyzer;
     private readonly ILogger<MainViewModel> logger;
     private readonly bool isInitializing = true;
+    private bool isAutoSwitchingDevice;
     private string? currentPlaylistFilePath;
     private int trackUnavailableSkipCount;
 
@@ -471,8 +472,26 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         if (value is not null)
         {
-            playbackService.SetOutputDevice(value);
+            try
+            {
+                playbackService.SetOutputDevice(value);
+            }
+            catch (Exception ex)
+            {
+                // 例外がここで外部に漏れると、[ObservableProperty] が生成するセッター内で OnPropertyChanged が呼ばれず、
+                // ComboBox の選択表示が更新されないままになるため、ここで捕捉して通知を継続させる。
+                logger.LogError(ex, "出力デバイスの切り替えに失敗しました: {DeviceName} ({DeviceId})", value.Name, value.Id);
+                StatusMessage = $"出力デバイス '{value.Name}' への切り替えに失敗しました。";
+                SaveSettingsIfReady();
+                return;
+            }
+
             UpdateAudioInfo();
+
+            if (!isInitializing && !isAutoSwitchingDevice)
+            {
+                StatusMessage = $"出力デバイスを '{value.Name}' に切り替えました。";
+            }
         }
 
         SaveSettingsIfReady();
@@ -661,7 +680,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
 
         // SetOutputDeviceを伴うSelectedDeviceの変更により、再生中であった場合は位置を保持したまま自動で再生を継続する。
-        SelectedDevice = fallback;
+        // isAutoSwitchingDevice でガードし、手動切り替え用のステータスメッセージと重複表示させない。
+        isAutoSwitchingDevice = true;
+        try
+        {
+            SelectedDevice = fallback;
+        }
+        finally
+        {
+            isAutoSwitchingDevice = false;
+        }
     }
 
     private void OnCurrentTrackChanged(object? sender, EventArgs e)
