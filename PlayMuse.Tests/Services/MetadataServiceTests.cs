@@ -20,7 +20,7 @@ public class MetadataServiceTests
             var track = new Track(path);
             var service = new MetadataService(new FakeDispatcherService());
 
-            await service.ApplyMetadataAsync(track);
+            await service.ApplyMetadataAsync(track, TestContext.Current.CancellationToken);
 
             // コンテナ幅(32bit)ではなく有効ビット数(24bit)が反映されること
             Assert.Equal(24, track.BitsPerSample);
@@ -46,7 +46,7 @@ public class MetadataServiceTests
             var track = new Track(path);
             var service = new MetadataService(new FakeDispatcherService());
 
-            await service.ApplyMetadataAsync(track);
+            await service.ApplyMetadataAsync(track, TestContext.Current.CancellationToken);
 
             Assert.Equal(0, track.BitsPerSample);
             Assert.Equal("M4A", track.ContainerFormatLabel);
@@ -75,7 +75,7 @@ public class MetadataServiceTests
             var track = new Track(mp3Path);
             var service = new MetadataService(new FakeDispatcherService());
 
-            await service.ApplyMetadataAsync(track);
+            await service.ApplyMetadataAsync(track, TestContext.Current.CancellationToken);
 
             // 拡張子がMP3である以上、たとえ内部的にビット深度相当の値が取得できても0に強制し、
             // フォーマット名(MP3)を表示する。
