@@ -25,6 +25,10 @@ public sealed class SpectrumAnalyzerService : ISpectrumAnalyzerService
     /// <summary>レベル下降時の追従係数（0〜1）。小さいほどゆっくり減衰し、なめらかに見える。</summary>
     private const double LevelReleaseFactor = 0.25;
 
+    /// <summary>平滑化・ピークホールドの値は指数的減衰のため厳密な0に到達しないので、
+    /// この値未満になったら0へスナップし、停止時に最下段が薄暗く点灯し続けるのを防ぐ。</summary>
+    private const double LevelSnapToZeroThreshold = 0.05;
+
     /// <summary>再生停止とみなすまでの、最終サンプル受信からの猶予時間。オーディオコールバックと
     /// UI側のポーリング間隔のずれによる誤検出（無音判定のちらつき）を防ぐためのバッファ。</summary>
     private static readonly TimeSpan SilenceTimeout = TimeSpan.FromMilliseconds(150);
@@ -368,6 +372,10 @@ public sealed class SpectrumAnalyzerService : ISpectrumAnalyzerService
             // バーの上下動をなめらかに見せる（アナログのVUメーター等と同様の考え方）。
             var factor = target > smoothedLevels[b] ? LevelAttackFactor : LevelReleaseFactor;
             smoothedLevels[b] += (target - smoothedLevels[b]) * factor;
+            if (target <= 0 && smoothedLevels[b] < LevelSnapToZeroThreshold)
+            {
+                smoothedLevels[b] = 0;
+            }
 
             var level = smoothedLevels[b];
 
@@ -381,6 +389,11 @@ public sealed class SpectrumAnalyzerService : ISpectrumAnalyzerService
             else
             {
                 peakLevels[b] = Math.Max(level, peakLevels[b] - PeakDecayPerUpdate);
+            }
+
+            if (target <= 0 && peakLevels[b] < LevelSnapToZeroThreshold)
+            {
+                peakLevels[b] = 0;
             }
 
             result[b] = new SpectrumBandLevel(

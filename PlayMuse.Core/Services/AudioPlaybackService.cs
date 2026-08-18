@@ -905,17 +905,4 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
             return false;
         }
     }
-
-    /// <summary>
-    /// 2つのWaveFormatがサンプルレート・ビット深度・チャンネル数・エンコーディングの観点で同一かどうかを判定する。
-    /// エンコーディングの一致判定は<see cref="AreFormatsCompatible"/>と同様に、
-    /// 一方がIeeeFloat、他方がExtensible（SubFormatがIEEE FloatのGUID）の場合も同一とみなす。
-    /// </summary>
-    private static bool IsSameFormat(WaveFormat a, WaveFormat b)
-    {
-        return a.SampleRate == b.SampleRate
-            && a.BitsPerSample == b.BitsPerSample
-            && a.Channels == b.Channels
-            && AreFormatsCompatible(a, b);
-    }
 }
