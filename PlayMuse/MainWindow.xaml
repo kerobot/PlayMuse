@@ -21,7 +21,6 @@
         <converters:SampleRateToStringConverter x:Key="SampleRateToStringConverter"/>
         <converters:BitsPerSampleToStringConverter x:Key="BitsPerSampleToStringConverter"/>
         <converters:DraggingOpacityConverter x:Key="DraggingOpacityConverter"/>
-        <converters:CurrentTrackBackgroundConverter x:Key="CurrentTrackBackgroundConverter"/>
         <converters:CurrentTrackForegroundConverter x:Key="CurrentTrackForegroundConverter"/>
         <converters:CurrentTrackIconVisibilityConverter x:Key="CurrentTrackIconVisibilityConverter"/>
         <Style x:Key="IconButtonStyle" TargetType="Button">

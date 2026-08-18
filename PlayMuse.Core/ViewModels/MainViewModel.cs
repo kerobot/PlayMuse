@@ -634,22 +634,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         var previousSelectedId = SelectedDevice?.Id;
 
-        Devices.Clear();
-
-        IReadOnlyList<AudioDeviceInfo> devices;
-        try
+        if (!TryPopulateDevices())
         {
-            devices = deviceService.GetDevices();
-        }
-        catch (Exception)
-        {
-            StatusMessage = "再生デバイスの取得に失敗しました。";
             return;
-        }
-
-        foreach (var device in devices)
-        {
-            Devices.Add(device);
         }
 
         if (Devices.Count == 0)
@@ -714,18 +701,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     private void LoadDevices()
     {
-        Devices.Clear();
-
-        try
+        if (!TryPopulateDevices())
         {
-            foreach (var device in deviceService.GetDevices())
-            {
-                Devices.Add(device);
-            }
-        }
-        catch (Exception)
-        {
-            StatusMessage = "再生デバイスの取得に失敗しました。";
             return;
         }
 
@@ -735,6 +712,34 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
 
         SelectedDevice = Devices.FirstOrDefault(d => d.IsDefault) ?? Devices.FirstOrDefault();
+    }
+
+    /// <summary>
+    /// <see cref="Devices"/> をクリアしたうえで、<see cref="deviceService"/> から最新のデバイス一覧を取得して再構築する。
+    /// <see cref="LoadDevices"/> と <see cref="RefreshDevicesAndRecoverIfNeeded"/> で共通する取得処理を集約する。
+    /// </summary>
+    /// <returns>取得に成功した場合は true。取得に失敗した場合は false（呼び出し側で処理を中断する）。</returns>
+    private bool TryPopulateDevices()
+    {
+        Devices.Clear();
+
+        IReadOnlyList<AudioDeviceInfo> devices;
+        try
+        {
+            devices = deviceService.GetDevices();
+        }
+        catch (Exception)
+        {
+            StatusMessage = "再生デバイスの取得に失敗しました。";
+            return false;
+        }
+
+        foreach (var device in devices)
+        {
+            Devices.Add(device);
+        }
+
+        return true;
     }
 
     /// <summary>

@@ -1,10 +1,11 @@
 using PlayMuse.Core.Models;
+using PlayMuse.Tests.Utilities;
 
 namespace PlayMuse.Tests.Models;
 
 public class PlaylistTests
 {
-    private static Track CreateTrack(string fileName) => new(Path.Combine(Path.GetTempPath(), fileName));
+    private static Track CreateTrack(string fileName) => TestHelper.CreateTrack(fileName);
 
     [Fact]
     public void Add_FirstTrack_SetsCurrentIndexToZero()

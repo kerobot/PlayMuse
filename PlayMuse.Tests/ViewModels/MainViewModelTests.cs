@@ -2,6 +2,7 @@ using PlayMuse.Core.Models;
 using PlayMuse.Core.Services;
 using PlayMuse.Core.ViewModels;
 using PlayMuse.Tests.Fakes;
+using PlayMuse.Tests.Utilities;
 
 namespace PlayMuse.Tests.ViewModels;
 
@@ -42,8 +43,7 @@ public class MainViewModelTests
         return new Fixture(viewModel, playbackService, playlistService, deviceService, fileDialogService, metadataService, settingsService);
     }
 
-    private static Track CreateTrack(string fileName) =>
-        new(Path.Combine(Path.GetTempPath(), fileName));
+    private static Track CreateTrack(string fileName) => TestHelper.CreateTrack(fileName);
 
     [Fact]
     public void PlayPauseCommand_WhenPlaylistEmpty_CannotExecute()
