@@ -47,7 +47,6 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
     private PlaybackState state = PlaybackState.Stopped;
     private float desiredVolume = 1.0f;
     private bool isUserStopped;
-    private string? normalizedTempWavPath;
     private Track? pendingTrack;
 
     public PlaybackState State
@@ -128,7 +127,6 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
         TeardownOutput();
         reader?.Dispose();
         reader = null;
-        DeleteNormalizedTempWavIfAny();
 
         pendingTrack = track;
         State = PlaybackState.Stopped;
@@ -150,15 +148,10 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
 
         try
         {
-            // WAVE_FORMAT_EXTENSIBLE（24bit/32bit float 等の高解像度WAVで一般的）は、
-            // 一部の読み込み経路でACM変換の失敗を招くことがあるため、事前に正規化する。
-            var normalizedPath = WavFormatNormalizer.NormalizeIfNeeded(track.FilePath);
-            normalizedTempWavPath = normalizedPath;
-
             // AudioFileReaderは内部で必ずIEEE Float 32bitへ変換してしまいビットパーフェクトを
             // 損なうため使用せず、元のビット深度・サンプルレートを保持するWaveStreamを直接生成する。
-            var newReader = NativeAudioFileReaderFactory.Create(normalizedPath ?? track.FilePath);
-
+            // WAV Extensible 形式の正規化は NativeAudioFileReaderFactory 内で自動的に行われる。
+            var newReader = NativeAudioFileReaderFactory.Create(track.FilePath);
             reader = newReader;
             track.Duration = newReader.TotalTime;
             return true;
@@ -166,7 +159,6 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
         catch (Exception ex)
         {
             reader = null;
-            DeleteNormalizedTempWavIfAny();
             State = PlaybackState.Stopped;
             RaiseError($"'{track.FileName}' を読み込めませんでした。対応していないファイル形式か、ファイルが破損している可能性があります。", ex, AudioErrorKind.TrackUnavailable);
             return false;
@@ -262,28 +254,6 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
         TeardownOutput();
         reader?.Dispose();
         reader = null;
-        DeleteNormalizedTempWavIfAny();
-    }
-
-    private void DeleteNormalizedTempWavIfAny()
-    {
-        if (normalizedTempWavPath is null)
-        {
-            return;
-        }
-
-        try
-        {
-            File.Delete(normalizedTempWavPath);
-        }
-        catch
-        {
-            // 一時ファイルの削除失敗は再生に影響しないため無視する。
-        }
-        finally
-        {
-            normalizedTempWavPath = null;
-        }
     }
 
     private void ReinitializeOutputPreservingState()

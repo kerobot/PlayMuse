@@ -1,21 +1,26 @@
-using System.Text;
 using NAudio.Wave;
 
 namespace PlayMuse.Core.Services;
 
 /// <summary>
-/// WAVE_FORMAT_EXTENSIBLE 形式の WAV ファイルを、NAudio の <see cref="AudioFileReader"/> が
-/// 問題なく読み込める形式へ正規化するヘルパー。
+/// WAVE_FORMAT_EXTENSIBLE 形式の WAV ファイル(SubFormat が PCM または IEEE Float)を、
+/// ACM 経由の変換を回避しつつ読み込むためのヘルパー。
 /// </summary>
 /// <remarks>
-/// <see cref="AudioFileReader"/> は .wav 読み込み時、内部の <see cref="WaveFileReader"/> の
-/// <see cref="WaveFormat.Encoding"/> が <see cref="WaveFormatEncoding.Pcm"/> /
-/// <see cref="WaveFormatEncoding.IeeeFloat"/> 以外（<see cref="WaveFormatEncoding.Extensible"/> を含む）の場合、
-/// Audio Compression Manager (ACM) 経由での変換を試みる。24bit/32bit float 等の高解像度 WAV でよく使われる
-/// WAVE_FORMAT_EXTENSIBLE タグはこれに該当し、環境によっては ACM ドライバが存在せず
-/// <c>NAudio.MmException: NoDriver calling acmFormatSuggest</c> が発生して再生できない。
-/// SubFormat が PCM または IEEE Float であれば音声データのバイト列自体は通常の PCM/Float と同一のため、
-/// fmt チャンクを非 Extensible 形式に書き換えた一時ファイルを生成することで ACM 経路を回避できる。
+/// <para>
+/// NAudio の <see cref="WaveFileReader"/> が返す <see cref="WaveFormat"/> が
+/// <see cref="WaveFormatEncoding.Extensible"/> の場合、一部の処理経路で ACM を介した
+/// 変換が試行され、環境によっては ACM ドライバが存在せず
+/// <c>NAudio.MmException: NoDriver calling acmFormatSuggest</c> 例外が発生する。
+/// </para>
+/// <para>
+/// WAVE_FORMAT_EXTENSIBLE の SubFormat が PCM/IEEE Float である場合、
+/// 音声データのバイト列自体は通常の PCM/Float と完全に同一である。
+/// そのため、<see cref="WaveFormat"/> プロパティのみを非 Extensible 相当
+/// (<see cref="WaveFormatEncoding.Pcm"/> / <see cref="WaveFormatEncoding.IeeeFloat"/>)
+/// に読み替える軽量なラッパー <see cref="WaveStream"/> を返すことで、
+/// ファイル I/O を発生させずに ACM 経路を回避できる。
+/// </para>
 /// </remarks>
 public static class WavFormatNormalizer
 {
@@ -30,69 +35,80 @@ public static class WavFormatNormalizer
     private static readonly Guid IeeeFloatSubFormatGuid = new("00000003-0000-0010-8000-00aa00389b71");
 
     /// <summary>
-    /// 指定ファイルが WAVE_FORMAT_EXTENSIBLE（SubFormat が PCM/IEEE Float）の WAV であれば、
-    /// 非 Extensible 形式に正規化した一時ファイルを生成してそのパスを返す。
-    /// 正規化が不要（対象外の拡張子、または既に Pcm/IeeeFloat）な場合は null を返す。
+    /// 指定ファイルが WAVE_FORMAT_EXTENSIBLE(SubFormat が PCM/IEEE Float)の WAV であれば、
+    /// <see cref="WaveFormat"/> を非 Extensible 形式に再解釈した <see cref="WaveStream"/> を返す。
+    /// 再解釈が不要(対象外の拡張子、または既に Pcm/IeeeFloat、非対応 SubFormat)な場合は null を返す。
     /// </summary>
-    public static string? NormalizeIfNeeded(string filePath)
+    /// <param name="filePath">読み込む WAV ファイルのパス。</param>
+    /// <returns>
+    /// 再解釈が必要な場合は再解釈済み <see cref="WaveStream"/>(呼び出し側が Dispose 責務を持つ)。
+    /// 不要または非対応の場合は null(呼び出し側は通常通り <see cref="WaveFileReader"/> を開く)。
+    /// </returns>
+    public static WaveStream? TryOpenReinterpreted(string filePath)
     {
         if (!string.Equals(Path.GetExtension(filePath), ".wav", StringComparison.OrdinalIgnoreCase))
         {
             return null;
         }
 
-        WaveFormat sourceFormat;
+        WaveFileReader reader;
         try
         {
-            using var probe = new WaveFileReader(filePath);
-            sourceFormat = probe.WaveFormat;
+            reader = new WaveFileReader(filePath);
         }
         catch
         {
-            // ヘッダ解析に失敗した場合は AudioFileReader 側に処理を委ねる。
+            // ヘッダ解析に失敗した場合は null を返し、後続処理(通常の WaveFileReader オープン)に委ねる。
             return null;
         }
 
+        var sourceFormat = reader.WaveFormat;
+
         if (sourceFormat.Encoding != WaveFormatEncoding.Extensible)
         {
+            // Extensible ではない場合は再解釈不要なので reader を破棄して null を返す。
+            reader.Dispose();
             return null;
         }
 
         if (!TryGetSubFormat(sourceFormat, out var subFormat))
         {
+            reader.Dispose();
             return null;
         }
 
-        WaveFormatEncoding targetEncoding;
+        WaveFormat reinterpretedFormat;
         if (subFormat == PcmSubFormatGuid)
         {
-            targetEncoding = WaveFormatEncoding.Pcm;
+            // SubFormat が PCM の場合、非 Extensible の PCM WaveFormat に再解釈する。
+            reinterpretedFormat = new WaveFormat(
+                sourceFormat.SampleRate,
+                sourceFormat.BitsPerSample,
+                sourceFormat.Channels);
         }
         else if (subFormat == IeeeFloatSubFormatGuid)
         {
-            targetEncoding = WaveFormatEncoding.IeeeFloat;
+            // SubFormat が IEEE Float の場合、非 Extensible の IEEE Float WaveFormat に再解釈する。
+            reinterpretedFormat = WaveFormat.CreateIeeeFloatWaveFormat(
+                sourceFormat.SampleRate,
+                sourceFormat.Channels);
         }
         else
         {
             // PCM/Float 以外の SubFormat はバイト列の互換性が保証できないため対象外とする。
+            reader.Dispose();
             return null;
         }
 
-        var tempPath = Path.Combine(Path.GetTempPath(), $"playmuse_{Guid.NewGuid():N}.wav");
-        using (var source = new WaveFileReader(filePath))
-        using (var destination = new FileStream(tempPath, FileMode.Create, FileAccess.Write))
-        {
-            WriteNormalizedWav(destination, source, targetEncoding);
-        }
-
-        return tempPath;
+        // 開いた WaveFileReader を、再解釈済み WaveFormat でラップして返す。
+        return new ReinterpretedWaveStream(reader, reinterpretedFormat);
     }
 
     /// <summary>
     /// WaveFormatEncoding.Extensible なフォーマットから SubFormat GUID を取得する。
     /// <see cref="WaveFileReader"/> はヘッダ解析結果として <see cref="WaveFormatExtensible"/> ではなく
-    /// <see cref="WaveFormatExtraData"/>（cbSize 以降の生バイト列を保持する型）を返すため、
-    /// その ExtraData から SubFormat GUID（オフセット6, 16byte: validBitsPerSample(2)+channelMask(4)の直後）を読み取る。
+    /// <see cref="WaveFormatExtraData"/>(cbSize 以降の生バイト列を保持する型)を返すため、
+    /// その ExtraData から SubFormat GUID(オフセット6, 16byte: validBitsPerSample(2)+channelMask(4)の直後)を読み取る。
     /// </summary>
     private static bool TryGetSubFormat(WaveFormat format, out Guid subFormat)
     {
@@ -112,55 +128,42 @@ public static class WavFormatNormalizer
         }
     }
 
-    private static void WriteNormalizedWav(Stream destination, WaveFileReader source, WaveFormatEncoding targetEncoding)
-    {
-        var format = source.WaveFormat;
-        var dataLength = (int)source.Length;
-
-        // fmt チャンク: PCM/IEEE Float は 16byte（IEEE Float 慣例として cbSize=0 の 18byte でも可だが、
-        // 最も互換性の高い 16byte 固定長ヘッダで出力する）。
-        const int fmtChunkSize = 16;
-        var riffSize = 4 + (8 + fmtChunkSize) + (8 + dataLength);
-
-        using var writer = new BinaryWriter(destination, Encoding.ASCII, leaveOpen: true);
-
-        writer.Write(Encoding.ASCII.GetBytes("RIFF"));
-        writer.Write(riffSize);
-        writer.Write(Encoding.ASCII.GetBytes("WAVE"));
-
-        writer.Write(Encoding.ASCII.GetBytes("fmt "));
-        writer.Write(fmtChunkSize);
-        writer.Write((short)(targetEncoding == WaveFormatEncoding.IeeeFloat ? 3 : 1));
-        writer.Write((short)format.Channels);
-        writer.Write(format.SampleRate);
-        writer.Write(format.AverageBytesPerSecond);
-        writer.Write((short)format.BlockAlign);
-        writer.Write((short)format.BitsPerSample);
-
-        writer.Write(Encoding.ASCII.GetBytes("data"));
-        writer.Write(dataLength);
-
-        writer.Flush();
-
-        source.Position = 0;
-        CopyInBlockAlignedChunks(source, destination, format.BlockAlign);
-    }
-
     /// <summary>
-    /// <see cref="WaveFileReader.Read"/> はブロック境界(BlockAlign)単位でしか読み取れないため、
-    /// 既定の <see cref="Stream.CopyTo(Stream)"/> の固定バッファサイズ（BlockAlignの倍数とは限らない）では
-    /// 例外が発生することがある。BlockAlign の倍数に切り詰めたバッファサイズで手動コピーする。
+    /// WAVE_FORMAT_EXTENSIBLE の <see cref="WaveFileReader"/> を、
+    /// <see cref="WaveFormat"/> のみを非 Extensible 形式に読み替えたラッパー <see cref="WaveStream"/>。
+    /// データのバイト列自体はそのまま inner reader から読み取るため、ファイル I/O は発生しない。
     /// </summary>
-    private static void CopyInBlockAlignedChunks(WaveFileReader source, Stream destination, int blockAlign)
+    private sealed class ReinterpretedWaveStream : WaveStream
     {
-        const int preferredBufferSize = 81920;
-        var bufferSize = Math.Max(blockAlign, preferredBufferSize / blockAlign * blockAlign);
-        var buffer = new byte[bufferSize];
+        private readonly WaveFileReader innerReader;
+        private readonly WaveFormat reinterpretedFormat;
 
-        int bytesRead;
-        while ((bytesRead = source.Read(buffer, 0, buffer.Length)) > 0)
+        public ReinterpretedWaveStream(WaveFileReader innerReader, WaveFormat reinterpretedFormat)
         {
-            destination.Write(buffer, 0, bytesRead);
+            this.innerReader = innerReader;
+            this.reinterpretedFormat = reinterpretedFormat;
+        }
+
+        public override WaveFormat WaveFormat => reinterpretedFormat;
+
+        public override long Length => innerReader.Length;
+
+        public override long Position
+        {
+            get => innerReader.Position;
+            set => innerReader.Position = value;
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+            => innerReader.Read(buffer, offset, count);
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                innerReader.Dispose();
+            }
+            base.Dispose(disposing);
         }
     }
 }

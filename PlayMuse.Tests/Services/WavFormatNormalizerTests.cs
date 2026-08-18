@@ -9,25 +9,24 @@ public class WavFormatNormalizerTests
     private static readonly Guid IeeeFloatSubFormatGuid = new("00000003-0000-0010-8000-00aa00389b71");
 
     [Fact]
-    public void NormalizeIfNeeded_ExtensiblePcmWav_CreatesPlayableTempFile()
+    public void TryOpenReinterpreted_ExtensiblePcmWav_ReturnsReinterpretedWaveStream()
     {
         var path = CreateTempWavPath();
         try
         {
             CreateExtensibleWav(path, sampleRate: 44100, bitsPerSample: 24, channels: 2, subFormat: PcmSubFormatGuid);
 
-            var normalizedPath = WavFormatNormalizer.NormalizeIfNeeded(path);
+            using var stream = WavFormatNormalizer.TryOpenReinterpreted(path);
 
-            Assert.NotNull(normalizedPath);
-            try
-            {
-                using var reader = new AudioFileReader(normalizedPath!);
-                Assert.Equal(44100, reader.WaveFormat.SampleRate);
-            }
-            finally
-            {
-                File.Delete(normalizedPath!);
-            }
+            Assert.NotNull(stream);
+            Assert.Equal(44100, stream!.WaveFormat.SampleRate);
+            Assert.Equal(24, stream.WaveFormat.BitsPerSample);
+            Assert.Equal(2, stream.WaveFormat.Channels);
+            Assert.Equal(WaveFormatEncoding.Pcm, stream.WaveFormat.Encoding);
+            // データの読み取りが可能であることを確認
+            var buffer = new byte[stream.WaveFormat.BlockAlign];
+            var bytesRead = stream.Read(buffer, 0, buffer.Length);
+            Assert.Equal(buffer.Length, bytesRead);
         }
         finally
         {
@@ -36,25 +35,24 @@ public class WavFormatNormalizerTests
     }
 
     [Fact]
-    public void NormalizeIfNeeded_ExtensibleFloatWav_CreatesPlayableTempFile()
+    public void TryOpenReinterpreted_ExtensibleFloatWav_ReturnsReinterpretedWaveStream()
     {
         var path = CreateTempWavPath();
         try
         {
             CreateExtensibleWav(path, sampleRate: 48000, bitsPerSample: 32, channels: 2, subFormat: IeeeFloatSubFormatGuid);
 
-            var normalizedPath = WavFormatNormalizer.NormalizeIfNeeded(path);
+            using var stream = WavFormatNormalizer.TryOpenReinterpreted(path);
 
-            Assert.NotNull(normalizedPath);
-            try
-            {
-                using var reader = new AudioFileReader(normalizedPath!);
-                Assert.Equal(48000, reader.WaveFormat.SampleRate);
-            }
-            finally
-            {
-                File.Delete(normalizedPath!);
-            }
+            Assert.NotNull(stream);
+            Assert.Equal(48000, stream!.WaveFormat.SampleRate);
+            Assert.Equal(32, stream.WaveFormat.BitsPerSample);
+            Assert.Equal(2, stream.WaveFormat.Channels);
+            Assert.Equal(WaveFormatEncoding.IeeeFloat, stream.WaveFormat.Encoding);
+            // データの読み取りが可能であることを確認
+            var buffer = new byte[stream.WaveFormat.BlockAlign];
+            var bytesRead = stream.Read(buffer, 0, buffer.Length);
+            Assert.Equal(buffer.Length, bytesRead);
         }
         finally
         {
@@ -63,16 +61,17 @@ public class WavFormatNormalizerTests
     }
 
     [Fact]
-    public void NormalizeIfNeeded_StandardPcmWav_ReturnsNull()
+    public void TryOpenReinterpreted_StandardPcmWav_ReturnsNull()
     {
         var path = CreateTempWavPath();
         try
         {
             CreateStandardPcmWav(path, sampleRate: 44100, bitsPerSample: 16, channels: 2);
 
-            var normalizedPath = WavFormatNormalizer.NormalizeIfNeeded(path);
+            using var stream = WavFormatNormalizer.TryOpenReinterpreted(path);
 
-            Assert.Null(normalizedPath);
+            // 標準 PCM WAV は再解釈が不要なので null を返す
+            Assert.Null(stream);
         }
         finally
         {
@@ -81,11 +80,12 @@ public class WavFormatNormalizerTests
     }
 
     [Fact]
-    public void NormalizeIfNeeded_NonWavExtension_ReturnsNull()
+    public void TryOpenReinterpreted_NonWavExtension_ReturnsNull()
     {
-        var normalizedPath = WavFormatNormalizer.NormalizeIfNeeded("song.mp3");
+        using var stream = WavFormatNormalizer.TryOpenReinterpreted("song.mp3");
 
-        Assert.Null(normalizedPath);
+        // .wav 以外の拡張子では null を返す
+        Assert.Null(stream);
     }
 
     private static string CreateTempWavPath()

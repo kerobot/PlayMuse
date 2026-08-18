@@ -25,7 +25,9 @@ internal static class NativeAudioFileReaderFactory
         if (string.Equals(extension, ".wav", StringComparison.OrdinalIgnoreCase))
         {
             // WAVはコンテナのPCM/Floatデータをそのまま保持するため、WaveFileReaderで直接読み込む。
-            return new WaveFileReader(filePath);
+            // ただし、WAVE_FORMAT_EXTENSIBLE 形式の WAV でサブフォーマットが PCM/IEEE Float の場合、
+            // ACM 経由の変換を回避するため、WaveFormat を再解釈したラッパーを返す。
+            return WavFormatNormalizer.TryOpenReinterpreted(filePath) ?? new WaveFileReader(filePath);
         }
 
         if (string.Equals(extension, ".mp3", StringComparison.OrdinalIgnoreCase))
