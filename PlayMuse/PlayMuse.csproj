@@ -1,6 +1,10 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <Content Include="Resources\Icons\PlayMuse.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\PlayMuse.Core\PlayMuse.Core.csproj" />
   </ItemGroup>
 
@@ -16,6 +20,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <ApplicationIcon>Resources\Icons\PlayMuse.ico</ApplicationIcon>
   </PropertyGroup>
 
 </Project>
