@@ -1,3 +1,4 @@
+using NAudio.Flac;
 using NAudio.Wave;
 
 namespace PlayMuse.Core.Services;
@@ -36,7 +37,16 @@ internal static class NativeAudioFileReaderFactory
             return new Mp3FileReader(filePath);
         }
 
-        // FLAC/AAC/M4A等はMedia Foundationでデコードする。
+        if (string.Equals(extension, ".flac", StringComparison.OrdinalIgnoreCase))
+        {
+            // FLACはMedia Foundationではビット深度維持が保証されないため、
+            // FLACのSTREAMINFO（SampleRate/Channels/BitsPerSample）を直接WaveFormatへ
+            // 反映するFlacReader（BunLabs.NAudio.Flac）でデコードし、整数PCMをそのまま取得する。
+            return new FlacReader(filePath);
+        }
+
+        // AAC/M4A等、FLAC以外の非対応フォーマットはMedia Foundationでデコードする。
+        // これらはビットパーフェクト再生の対象外（元のビット深度維持が保証されない）。
         // RequestFloatOutput = false により、可能な限り元のビット深度の整数PCMを要求する。
         var settings = new MediaFoundationReader.MediaFoundationReaderSettings
         {

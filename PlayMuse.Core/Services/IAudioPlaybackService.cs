@@ -60,6 +60,12 @@ public interface IAudioPlaybackService : IDisposable
     /// </summary>
     bool IsResampling { get; }
 
+    /// <summary>
+    /// 現在の再生が真にビットパーフェクトであるかどうか。
+    /// 排他モード・無変換出力・音量1.0・スペクトラム加工なしの全条件を満たす場合にのみ true。
+    /// </summary>
+    bool IsBitPerfect { get; }
+
     event EventHandler<PlaybackState>? StateChanged;
 
     event EventHandler? PlaybackCompleted;

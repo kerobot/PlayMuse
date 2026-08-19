@@ -34,6 +34,8 @@ public sealed class FakeAudioPlaybackService : IAudioPlaybackService
 
     public bool IsResampling => false;
 
+    public bool IsBitPerfect => false;
+
     public int PlayCallCount { get; private set; }
 
     public int PauseCallCount { get; private set; }

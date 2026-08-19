@@ -8,6 +8,14 @@ namespace PlayMuse.Core.Services;
 /// 一部のUSB DAC（例: Fiio DM15 R2R）はWASAPI排他モードでこの形式のみを受理するため、
 /// ビットパーフェクト再生のために使用する。
 /// </summary>
+/// <remarks>
+/// <see cref="Read"/> は要求バイト数 <c>count</c> を出力コンテナサイズ（4バイト/サンプル）の倍数と
+/// 見なして処理しており、端数（3バイト境界に満たない余り）は次回呼び出しへ繰り越さない。
+/// WASAPI排他モードの<see cref="NAudio.Wave.WasapiOut"/>は常にBlockAlign（フレーム単位）に
+/// 整列したバイト数でReadを要求するため、この経路で端数が発生することはない。
+/// 本プロバイダーはWASAPI排他専用の内部実装であり、共有モードや他の汎用<see cref="IWaveProvider"/>
+/// パイプラインから利用する場合は、端数の繰り越し処理を追加する必要がある。
+/// </remarks>
 internal sealed class Pack24In32WaveProvider : IWaveProvider
 {
     private readonly IWaveProvider source;

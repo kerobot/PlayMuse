@@ -35,7 +35,8 @@ PlayMuse は、MP3 / FLAC / WAV / AAC / M4A を再生できるシンプルな WP
 - .NET 10 / WPF / C#
 - CommunityToolkit.Mvvm（MVVM 実装）
 - NAudio（`NAudio.Wave` / `NAudio.CoreAudioApi`）
-- Media Foundation（FLAC / AAC / M4A のデコード）
+- BunLabs.NAudio.Flac（FLAC のネイティブデコード）
+- Media Foundation（AAC / M4A のデコード、及び非ビットパーフェクト時のリサンプリング）
 - NAudio.Dsp（スペクトラムアナライザのFFT演算）
 - TagLibSharp（メタデータ・アルバムアート読み取り）
 - xUnit（ユニットテスト）
@@ -98,9 +99,12 @@ PlayMuse では、WASAPI 排他モードでデバイスが受け付け可能な�
 |---|---|---|
 | WAV | `WaveFileReader` | コンテナの PCM / IEEE Float データをそのまま読み取る。ロスレスかつ変換なし。 |
 | MP3 | `Mp3FileReader` | デコード結果は常に 16bit PCM 相当（フォーマット自体が非可逆圧縮のため）。 |
-| FLAC / AAC / M4A | `MediaFoundationReader`（`RequestFloatOutput = false`） | Media Foundation のデコーダーを利用し、可能な限り元のビット深度の整数 PCM を要求する。 |
+| FLAC | `NAudio.Flac.FlacReader`（`BunLabs.NAudio.Flac`） | FLAC の STREAMINFO を直接参照し、Media Foundation を介さずに元のビット深度（16/24bit）の整数 PCM を復号する。 |
+| AAC / M4A | `MediaFoundationReader`（`RequestFloatOutput = false`） | Media Foundation のデコーダーを利用し、可能な限り元のビット深度の整数 PCM を要求する（可逆圧縮のため元のビットパーフェクトは保証されない）。 |
 
 NAudio が提供する汎用の `AudioFileReader` は、内部で必ず IEEE Float 32bit の `ISampleProvider` パイプラインへ変換しているようです。これは扱いやすい反面、24bit FLAC のような高解像度音源でも一度 32bit float へ変換されるため、後段でビットパーフェクト判定を行うための「元のビット深度」という情報が失われてしまいます。
+
+さらに FLAC に限っていえば、Media Foundation の FLAC デコーダーは必ずしも元のビット深度（24bit など）を保ったままデコードしてくれる保証がありません。そこで PlayMuse では FLAC のみ `BunLabs.NAudio.Flac` パッケージの `NAudio.Flac.FlacReader` を利用し、STREAMINFO ブロックから直接サンプルレート・ビット深度を取得した上でネイティブの整数 PCM を復号します。
 
 そのため `AudioFileReader` は使わず、形式ごとに最適な `WaveStream` を直接選択するファクトリを実装しました。
 
@@ -123,7 +127,14 @@ internal static class NativeAudioFileReaderFactory
 			return new Mp3FileReader(filePath);
 		}
 
-		// FLAC/AAC/M4A等はMedia Foundationでデコードする。
+		if (string.Equals(extension, ".flac", StringComparison.OrdinalIgnoreCase))
+		{
+			// Media FoundationはFLACの元のビット深度を保証しないため、
+			// STREAMINFOを直接参照するFlacReaderでネイティブデコードする。
+			return new FlacReader(filePath);
+		}
+
+		// AAC/M4A等はMedia Foundationでデコードする。
 		// RequestFloatOutput = false により、可能な限り元のビット深度の整数PCMを要求する。
 		var settings = new MediaFoundationReader.MediaFoundationReaderSettings
 		{
@@ -229,39 +240,47 @@ private static bool IsFormatSupportedSafe(MMDevice device, WaveFormat format)
 }
 ```
 
-また、PCM と IEEE Float、`WaveFormatExtensible` の SubFormat の違いも考慮して互換性を判定する必要があります。
+また、コンテナビット数だけが異なる「24-in-32」のようなロスレス再パッキングも区別する必要があるため、互換性判定は `ExactFormatMatch` / `LosslessRepacking` / `RequiresConversion` の3段階で行っています。
 
 ```csharp
-private static bool AreFormatsCompatible(WaveFormat sourceFormat, WaveFormat deviceFormat)
+private enum FormatCompatibility
 {
-	// 両方とも同じEncodingの場合は互換性あり
-	if (sourceFormat.Encoding == deviceFormat.Encoding)
+	ExactFormatMatch,
+	LosslessRepacking,
+	RequiresConversion,
+}
+
+private static FormatCompatibility ClassifyFormatCompatibility(WaveFormat source, WaveFormat target)
+{
+	if (source.SampleRate != target.SampleRate || source.Channels != target.Channels)
 	{
-		return true;
+		return FormatCompatibility.RequiresConversion;
 	}
 
-	var sourceExt = sourceFormat as WaveFormatExtensible;
-	var deviceExt = deviceFormat as WaveFormatExtensible;
+	var sourceIsFloat = IsFloatEncoding(source);
+	var targetIsFloat = IsFloatEncoding(target);
 
-	// ソースがIeeeFloat、デバイスがExtensibleの場合
-	if (sourceFormat.Encoding == WaveFormatEncoding.IeeeFloat && deviceExt != null)
+	if (sourceIsFloat != targetIsFloat)
 	{
-		return deviceExt.SubFormat == IeeeFloatSubFormatGuid;
+		return FormatCompatibility.RequiresConversion;
 	}
 
-	// デバイスがIeeeFloat、ソースがExtensibleの場合
-	if (deviceFormat.Encoding == WaveFormatEncoding.IeeeFloat && sourceExt != null)
+	var sourceValidBits = GetValidBits(source);
+	var targetValidBits = GetValidBits(target);
+
+	if (source.BitsPerSample == target.BitsPerSample && sourceValidBits == targetValidBits)
 	{
-		return sourceExt.SubFormat == IeeeFloatSubFormatGuid;
+		return FormatCompatibility.ExactFormatMatch;
 	}
 
-	// 両方がExtensibleの場合、SubFormatを比較
-	if (sourceExt != null && deviceExt != null)
+	// 24bit整数PCMの実効データ（ValidBits=24）を32bitコンテナへ左詰め格納する
+	// 「24-in-32」へのロスレス再パッキングのみ対応する。
+	if (!sourceIsFloat && sourceValidBits == 24 && targetValidBits == 24 && target.BitsPerSample == 32)
 	{
-		return sourceExt.SubFormat == deviceExt.SubFormat;
+		return FormatCompatibility.LosslessRepacking;
 	}
 
-	return false;
+	return FormatCompatibility.RequiresConversion;
 }
 ```
 
@@ -358,22 +377,20 @@ internal sealed class Pack24In32WaveProvider(IWaveProvider source, WaveFormat pa
 
 ## ボリューム処理でも波形を破壊しない
 
-音量を下げる操作は本来、サンプル値を書き換える処理です。しかし音量が最大のときにまで無駄にスケーリング処理を挟んでしまうと、浮動小数点演算による微小な誤差が生じかねません。そこで `PcmVolumeProvider` では、音量が閾値（`0.999f`）以上のときは一切サンプルへ手を加えずにスルーし、音量を下げた場合のみ 8/16/24/32bit PCM および IEEE Float それぞれに対応したスケーリング処理を行うようにしています。
+音量を下げる操作は本来、サンプル値を書き換える処理です。しかし音量が最大のときにまで無駄にスケーリング処理を挟んでしまうと、浮動小数点演算による微小な誤差が生じかねません。そこで `PcmVolumeProvider` では、音量が完全に最大値（`Volume >= 1.0f`）のときのみ一切サンプルへ手を加えずにスルーし、音量を下げた場合のみ 8/16/24/32bit PCM および IEEE Float それぞれに対応したスケーリング処理を行うようにしています。`Volume` は `[0, 1]` にクランプされているため、これは実質的に厳密な unity-gain 判定になります。
 
 ```csharp
 internal sealed class PcmVolumeProvider(IWaveProvider source) : IWaveProvider
 {
-	// この値以上の音量は「実質最大音量」とみなし、サンプル加工を完全にスキップする。
-	private const float BitPerfectThreshold = 0.999f;
-
 	public float Volume { get; set; } = 1.0f;
 
 	public int Read(byte[] buffer, int offset, int count)
 	{
 		var bytesRead = source.Read(buffer, offset, count);
 
-		if (bytesRead <= 0 || Volume >= BitPerfectThreshold)
+		if (bytesRead <= 0 || Volume >= 1.0f)
 		{
+			// Volumeは[0,1]にクランプされているため、これは厳密なunity-gain判定になる。
 			// 最大音量時はデコード結果をそのまま出力し、ビットパーフェクトを保つ。
 			return bytesRead;
 		}

@@ -875,7 +875,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         // ビットパーフェクト判定
         // 非可逆圧縮形式(MP3/AAC/M4Aなど)は、そもそも元データが不可逆変換されているためビットパーフェクトではない
-        var isBitPerfect = !isLossySource && !isResampling && actualShareMode == AudioShareMode.Exclusive;
+        var isBitPerfect = !isLossySource && playbackService.IsBitPerfect;
         var bitPerfectText = isBitPerfect ? "✓ ビットパーフェクト再生" : "△ 非ビットパーフェクト";
         lines.Add($"💎 {bitPerfectText}");
 

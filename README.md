@@ -15,7 +15,8 @@ PlayMuse は、MP3 / FLAC / WAV / AAC / M4A といった主要な音楽ファイ
 - **NAudio** — オーディオ入出力全般
   - `NAudio.Wave`（`WaveFileReader` / `Mp3FileReader` / `MediaFoundationReader` / `MediaFoundationResampler`）によるデコード
   - `NAudio.CoreAudioApi`（`WasapiOut` / `MMDeviceEnumerator` / `MMDevice`）による WASAPI 出力とデバイス列挙
-- **Media Foundation** — FLAC / AAC / M4A のデコードとリサンプリング
+- **BunLabs.NAudio.Flac** — FLAC のネイティブデコード（STREAMINFO のビット深度を保ったまま PCM を取得）
+- **Media Foundation** — AAC / M4A のデコードと、ビットパーフェクト不可時のリサンプリング
 - **NAudio.Dsp** — スペクトラムアナライザの FFT（高速フーリエ変換）演算
 - **TagLibSharp** — ID3 (MP3) / Vorbis Comment (FLAC) などのメタデータ・アルバムアートの読み取り
 - **xUnit** — ユニットテスト（`PlayMuse.Tests`）
@@ -51,7 +52,8 @@ PlayMuse は、MP3 / FLAC / WAV / AAC / M4A といった主要な音楽ファイ
 |---|---|---|
 | WAV | `WaveFileReader` | コンテナの PCM / IEEE Float データをそのまま読み取る。ロスレスかつ変換なし。 |
 | MP3 | `Mp3FileReader` | ACM/MediaFoundation 経由でデコードするが、結果は常に 16bit PCM 相当で返る（フォーマット自体が非可逆圧縮のため）。 |
-| FLAC / AAC / M4A | `MediaFoundationReader`（`RequestFloatOutput = false`） | Media Foundation のデコーダーを利用し、可能な限り元のビット深度の整数 PCM を要求する。 |
+| FLAC | `NAudio.Flac.FlacReader`（`BunLabs.NAudio.Flac`） | FLAC の STREAMINFO を直接参照し、Media Foundation を介さずに元のビット深度（16/24bit）の整数 PCM を復号する。 |
+| AAC / M4A | `MediaFoundationReader`（`RequestFloatOutput = false`） | Media Foundation のデコーダーを利用し、可能な限り元のビット深度の整数 PCM を要求する（可逆圧縮のため元のビットパーフェクトは保証されない）。 |
 
 ### なぜ形式ごとに処理を分けているのか
 
@@ -61,7 +63,8 @@ NAudio が提供する汎用の `AudioFileReader` は、内部で必ず IEEE Flo
 
 - WAV はコンテナに記録された PCM/Float をそのまま扱えるため `WaveFileReader` で十分
 - MP3 は圧縮アルゴリズム上、デコード後は 16bit PCM 相当にしかならない
-- FLAC/AAC/M4A は Media Foundation の `RequestFloatOutput = false` によって、可能な限り元のビット深度（16bit / 24bit など）を保った整数 PCM としてデコードさせる
+- FLAC は Media Foundation 経由だと必ずしも元のビット深度（24bit など）が保証されないため、`NAudio.Flac.FlacReader` で STREAMINFO を直接参照してデコードする
+- AAC/M4A は Media Foundation の `RequestFloatOutput = false` によって、可能な限り元のビット深度（16bit / 24bit など）を保った整数 PCM としてデコードさせる
 
 さらに、24bit/32bit float を含む `WAVE_FORMAT_EXTENSIBLE` 形式の WAV は、環境によっては Audio Compression Manager (ACM) 経由の変換に失敗し `NoDriver calling acmFormatSuggest` 例外で再生できないことがあります。これに対応するため `WavFormatNormalizer` が事前にヘッダーを解析し、SubFormat が PCM/IEEE Float であれば非 Extensible 形式の一時ファイルへ書き換えることで、データ自体を変更せずに互換性の問題を回避しています。
 
@@ -114,14 +117,14 @@ Windows の既定の音声パイプラインは、共有モードで動作する
 2. **フォーマット変換を伴わないデコード**
    前述の `NativeAudioFileReaderFactory` により、ファイル固有のビット深度・サンプルレートを保持したまま `WaveStream` を取得します。
 
-3. **デバイスが対応する完全一致フォーマットの探索**
-   `InitializeOutputCore` は、ファイルのフォーマット（サンプルレート・ビット深度・チャンネル数・エンコーディング）とデバイスが排他モードで受け付け可能なフォーマットを比較する `ResolveBitPerfectFormat` を用い、`AreFormatsCompatible` で PCM/IEEE Float/`WaveFormatExtensible` の SubFormat 差異まで考慮した完全一致判定を行います。一致する場合は一切のフォーマット変換を行わずそのまま出力し、ビットパーフェクト再生を成立させます。
+3. **デバイスが対応する完全一致フォーマットの探索と、3段階の互換性判定**
+   `InitializeOutputCore` は、ファイルのフォーマット（サンプルレート・ビット深度・チャンネル数・エンコーディング）とデバイスが排他モードで受け付け可能なフォーマットを比較する `ResolveBitPerfectFormat` を用い、`ClassifyFormatCompatibility` で `ExactFormatMatch`（完全一致）・`LosslessRepacking`（コンテナサイズのみ異なる24-in-32等）・`RequiresConversion`（サンプルレート・Float/PCM変換が必要）の3段階で判定します。前者 2 つはビットパーフェクトとして扱い、ロスレス再パッキングのみ `Pack24In32WaveProvider` で対応します。
 
 4. **一致フォーマットがない場合のみリサンプリング**
    デバイスが該当フォーマットに対応していない場合に限り、`MediaFoundationResampler` を使ってデバイスが対応する最も近いフォーマット（共有モードなら `MixFormat`）へ変換します。この場合は `IsResampling` フラグを立て、UI 上でビットパーフェクトではないことが分かるようにしています。
 
 5. **ボリューム処理でも波形を破壊しない**
-   `PcmVolumeProvider` は音量が最大値（`BitPerfectThreshold = 0.999f` 以上）のときはサンプルに一切手を加えずスルーします。音量を下げた場合のみ、8/16/24/32bit PCM および IEEE Float のそれぞれに対応したスケーリング処理を行い、元のビット深度・エンコーディングを変えずに音量調整を実現します。
+   `PcmVolumeProvider` は音量が完全に最大値（`Volume >= 1.0f`）のときはサンプルに一切手を加えずスルーします。音量を下げた場合のみ、8/16/24/32bit PCM および IEEE Float のそれぞれに対応したスケーリング処理を行い、元のビット深度・エンコーディングを変えずに音量調整を実現します。
 
 6. **排他モード非対応時の安全なフォールバック**
    デバイスや形式によっては排他モードでの初期化自体に失敗することがあります（`AUDCLNT_E_UNSUPPORTED_FORMAT` / `AUDCLNT_E_DEVICE_IN_USE` / `AUDCLNT_E_EXCLUSIVE_MODE_NOT_ALLOWED` など）。`InitializeOutput` はこれらの HResult を判定し、原因別のメッセージをユーザーに提示した上で自動的に共有モードへフォールバックし、再生自体は継続できるようにしています。
@@ -172,7 +175,7 @@ WASAPI 排他モードで「完全一致フォーマット」を要求しても�
 ビットパーフェクト再生は万能ではなく、以下の条件下では成立しない、あるいは意図的にトレードオフが発生します。実装の透明性のため、該当箇所とあわせて明記します。
 
 - **音量を下げるとビットパーフェクトではなくなる**
-  `PcmVolumeProvider` は音量が最大値（`Volume >= 0.999f`）のときのみサンプルを無加工でスルーします。音量を下げた場合は各ビット深度に応じたスケーリング処理が入るため、その時点でファイル本来の値とは異なる値がデバイスへ送られます。これは音量調整という機能要件上避けられないトレードオフであり、真にビットパーフェクトな再生を行いたい場合はアプリの音量を最大にし、音量調整は外部アンプ側で行うことを推奨します。
+  `PcmVolumeProvider` は音量が完全に最大値（`Volume >= 1.0f`）のときのみサンプルを無加工でスルーします。音量を下げた場合は各ビット深度に応じたスケーリング処理が入るため、その時点でファイル本来の値とは異なる値がデバイスへ送られます。これは音量調整という機能要件上避けられないトレードオフであり、真にビットパーフェクトな再生を行いたい場合はアプリの音量を最大にし、音量調整は外部アンプ側で行うことを推奨します。
 
 - **MP3 はそもそもビットパーフェクトの対象になりにくい**
   MP3 は非可逆圧縮フォーマットのため、劣化はエンコード時点で既に発生しています。`Mp3FileReader` によるデコード結果は 16bit PCM 相当で確定するため、「デコード後の値をそのまま送る」という意味でのビットパーフェクトは成立しますが、WAV/FLAC のような「原音を完全に保持した再生」という文脈でのビットパーフェクトとは意味合いが異なります。

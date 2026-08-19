@@ -1,0 +1,4 @@
+# Copilot Instructions
+
+## プロジェクト ガイドライン
+- ビットパーフェクト再生を目指すオーディオプレーヤーPlayMuseでは、FLACはMedia Foundationではなく専用デコーダー（NAudio.Flac.FlacReader等）でSTREAMINFOのビット深度を直接参照し、フォーマット互換性判定はExactFormatMatch/LosslessRepacking/RequiresConversionの3段階で行う設計方針を採用している。

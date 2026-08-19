@@ -47,6 +47,7 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
     private PlaybackState state = PlaybackState.Stopped;
     private float desiredVolume = 1.0f;
     private bool isUserStopped;
+    private bool decoderOutputIsTrusted;
     private Track? pendingTrack;
     private string? loadedTrackFilePath;
 
@@ -134,6 +135,20 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
     public string? OutputFormatLabel { get; private set; }
 
     public bool IsResampling { get; private set; }
+
+    /// <summary>
+    /// 現在の再生が真にビットパーフェクトであるかどうか。
+    /// 排他モードでリサンプリングが行われておらず（デコーダー出力がそのまま、
+    /// またはロスレス再パッキングのみでデバイスへ渡せている）、かつ音量が1.0（<see cref="PcmVolumeProvider"/>が無加工でパススルーする状態）
+    /// である場合にのみ true となる。
+    /// <see cref="InitializeOutputCore"/> 内で <see cref="WasapiOut.Init(IWaveProvider)"/> が
+    /// 成功した後に確定する値であるため、出力初期化前の判定候補よりも厳密。
+    /// </summary>
+    public bool IsBitPerfect =>
+        ActualShareMode == AudioShareMode.Exclusive &&
+        !IsResampling &&
+        desiredVolume >= 1.0f &&
+        decoderOutputIsTrusted;
 
     public event EventHandler<PlaybackState>? StateChanged;
 
@@ -350,6 +365,9 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
         IsResampling = false;
         OutputFormat = null;
         OutputFormatLabel = null;
+        decoderOutputIsTrusted = false;
+
+        bool canOutputWithoutSampleConversion = false;
 
         if (shareModeNative == AudioClientShareMode.Exclusive)
         {
@@ -366,50 +384,54 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
             // デバイスが対応しているフォーマット候補を列挙してデバッグ出力
             LogSupportedDeviceFormats(logger, currentMMDevice!, fileFormat.Channels);
 
-            // ファイルのフォーマットを排他モードでデバイスが直接サポートするか確認（ビットパーフェクト判定）。
+            // ファイルのフォーマットを排他モードでデバイスが直接サポートするか確認。
             // WASAPI排他モードは、16bit/1〜2chの標準WAVEFORMATEX以外（24bit等）では
             // WAVEFORMATEXTENSIBLEでの指定を要求するデバイスが多いため、
             // ファイルそのままの形式とExtensible相当の形式の両方を試す。
-            var bitPerfectFormat = ResolveBitPerfectFormat(currentMMDevice!, fileFormat);
-            bool isBitPerfect = bitPerfectFormat is not null;
+            // この時点では音量・スペクトラムタップ・実際のWasapiOut.Init()成功可否はまだ未確認であり、
+            // directOutputFormat は「デバイスへ無変換またはロスレス再パッキングで渡せる候補形式がある」ことのみを表す。
+            // 最終的なビットパーフェクト状態は IsBitPerfect プロパティで判定する。
+            var directOutputFormat = ResolveDirectOutputFormat(currentMMDevice!, fileFormat);
+            canOutputWithoutSampleConversion = directOutputFormat is not null;
 
             if (logger.IsEnabled(LogLevel.Debug))
             {
                 logger.LogDebug(
-                    "[InitializeOutputCore] ビットパーフェクト判定: {IsBitPerfect} ({SampleRate}Hz {BitsPerSample}bit {Channels}ch {Encoding})",
-                    isBitPerfect, fileFormat.SampleRate, fileFormat.BitsPerSample, fileFormat.Channels, fileFormat.Encoding);
+                    "[InitializeOutputCore] 無変換出力可否: {CanOutputWithoutSampleConversion} ({SampleRate}Hz {BitsPerSample}bit {Channels}ch {Encoding})",
+                    canOutputWithoutSampleConversion, fileFormat.SampleRate, fileFormat.BitsPerSample, fileFormat.Channels, fileFormat.Encoding);
             }
 
-            if (isBitPerfect)
+            if (canOutputWithoutSampleConversion)
             {
-                // ソースの24bit(3バイト/サンプル)を、コンテナサイズが異なる24-in-32(4バイト/サンプル)へ
-                // 変換する必要があるかどうかを判定する（container size mismatch）。
-                bool requiresPacking = bitPerfectFormat!.BitsPerSample != fileFormat.BitsPerSample;
+                // 3段階のフォーマット互換性判定（ExactFormatMatch/LosslessRepacking/RequiresConversion）に基づき、
+                // コンテナサイズのみが異なる24-in-32等のロスレス再パッキングが必要かどうかを判定する。
+                var compatibility = ClassifyFormatCompatibility(fileFormat, directOutputFormat!);
+                bool requiresPacking = compatibility == FormatCompatibility.LosslessRepacking;
 
                 if (requiresPacking)
                 {
                     if (logger.IsEnabled(LogLevel.Debug))
                     {
                         logger.LogDebug(
-                            "[InitializeOutputCore] ビットパーフェクト再生（24-in-32パッキング）: {SampleRate}Hz {BitsPerSample}bit -> {ContainerBits}bitコンテナ {Channels}ch {Encoding}",
-                            fileFormat.SampleRate, fileFormat.BitsPerSample, bitPerfectFormat.BitsPerSample, fileFormat.Channels, fileFormat.Encoding);
+                            "[InitializeOutputCore] 無変換出力（24-in-32パッキング）: {SampleRate}Hz {BitsPerSample}bit -> {ContainerBits}bitコンテナ {Channels}ch {Encoding}",
+                            fileFormat.SampleRate, fileFormat.BitsPerSample, directOutputFormat!.BitsPerSample, fileFormat.Channels, fileFormat.Encoding);
                     }
-                    waveProvider = new Pack24In32WaveProvider(waveProvider, bitPerfectFormat);
+                    waveProvider = new Pack24In32WaveProvider(waveProvider, directOutputFormat!);
                 }
                 else if (logger.IsEnabled(LogLevel.Debug))
                 {
                     // ファイルフォーマット（またはそのExtensible相当）をそのまま出力（リサンプリング不要）
                     logger.LogDebug(
-                        "[InitializeOutputCore] ビットパーフェクト再生: {SampleRate}Hz {BitsPerSample}bit {Channels}ch {Encoding}",
+                        "[InitializeOutputCore] 無変換出力: {SampleRate}Hz {BitsPerSample}bit {Channels}ch {Encoding}",
                         fileFormat.SampleRate, fileFormat.BitsPerSample, fileFormat.Channels, fileFormat.Encoding);
                 }
-                OutputFormat = bitPerfectFormat;
-                OutputFormatLabel = DescribeFormat(bitPerfectFormat);
+                OutputFormat = directOutputFormat;
+                OutputFormatLabel = DescribeFormat(directOutputFormat!);
             }
             else
             {
-                // ビットパーフェクト不可: デバイスが対応する最も近しいフォーマットを選択してリサンプリング
-                logger.LogDebug("[InitializeOutputCore] ビットパーフェクト不可: デバイス対応フォーマットを探索");
+                // 無変換出力不可: デバイスが対応する最も近しいフォーマットを選択してリサンプリング
+                logger.LogDebug("[InitializeOutputCore] 無変換出力不可: デバイス対応フォーマットを探索");
 
                 resampler?.Dispose();
                 var bestDeviceFormat = FindBestSupportedFormat(currentMMDevice!, fileFormat);
@@ -469,46 +491,86 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
         ActualShareMode = shareModeNative == AudioClientShareMode.Exclusive
             ? AudioShareMode.Exclusive
             : AudioShareMode.Shared;
+
+        // WasapiOut.Init() が実際に成功した後で、デコーダー出力（またはロスレス再パッキング）が
+        // そのままデバイスへ渡せたことを確定する。音量（desiredVolume）の考慮は呼び出し元の
+        // IsBitPerfect プロパティ側で行う。
+        decoderOutputIsTrusted = ActualShareMode == AudioShareMode.Exclusive && canOutputWithoutSampleConversion;
     }
 
     /// <summary>
     /// 2つのWaveFormatが互換性があるか（ビットパーフェクト再生可能か）を判定する。
     /// ExtensibleフォーマットのSubFormatも考慮して比較する。
     /// </summary>
-    private static bool AreFormatsCompatible(WaveFormat sourceFormat, WaveFormat deviceFormat)
+    private enum FormatCompatibility
     {
-        // 両方とも同じEncodingの場合は互換性あり
-        if (sourceFormat.Encoding == deviceFormat.Encoding)
+        /// <summary>SampleRate/Channels/BitsPerSample/実エンコーディング/ValidBitsPerSampleがすべて一致する。</summary>
+        ExactFormatMatch,
+
+        /// <summary>PCM値としては保存されるが、コンテナ形式のみが異なる（例: 24-in-24 -> 24-in-32）。</summary>
+        LosslessRepacking,
+
+        /// <summary>サンプルレート変換・ビット深度変換・Float/PCM変換等、リサンプリングを要する。</summary>
+        RequiresConversion,
+    }
+
+    /// <summary>
+    /// 指定フォーマットがIEEE Floatエンコーディングかどうかを判定する。
+    /// 非Extensibleは<see cref="WaveFormat.Encoding"/>、Extensibleは<see cref="WaveFormatExtensible.SubFormat"/>で判定する。
+    /// </summary>
+    private static bool IsFloatEncoding(WaveFormat format) =>
+        format.Encoding == WaveFormatEncoding.IeeeFloat ||
+        (format is WaveFormatExtensible extensible && extensible.SubFormat == IeeeFloatSubFormatGuid);
+
+    /// <summary>
+    /// 指定フォーマットの実効ビット数（ValidBitsPerSample）を取得する。
+    /// Extensibleでない場合はコンテナビット数（BitsPerSample）をそのまま返す。
+    /// </summary>
+    private static int GetValidBits(WaveFormat format) =>
+        format is WaveFormatExtensible extensible
+            ? (short)WaveFormatExtensibleValidBitsField.GetValue(extensible)!
+            : format.BitsPerSample;
+
+    /// <summary>
+    /// 2つのWaveFormatの互換性を<see cref="FormatCompatibility"/>の3段階で判定する。
+    /// SampleRate/Channels/実エンコーディング（Extensibleなら<see cref="WaveFormatExtensible.SubFormat"/>）が
+    /// 一致しない場合は無条件で<see cref="FormatCompatibility.RequiresConversion"/>とする。
+    /// コンテナビット数（BitsPerSample）と実効ビット数（ValidBitsPerSample）が完全に一致すれば
+    /// <see cref="FormatCompatibility.ExactFormatMatch"/>、実効ビット数（24bit）のみ一致し
+    /// コンテナサイズだけが異なる場合（24-in-24 -> 24-in-32）は
+    /// <see cref="FormatCompatibility.LosslessRepacking"/>（<see cref="Pack24In32WaveProvider"/>で対応可能）とする。
+    /// </summary>
+    private static FormatCompatibility ClassifyFormatCompatibility(WaveFormat source, WaveFormat target)
+    {
+        if (source.SampleRate != target.SampleRate || source.Channels != target.Channels)
         {
-            return true;
+            return FormatCompatibility.RequiresConversion;
         }
 
-        // 一方がIeeeFloat、もう一方がExtensibleの場合、ExtensibleのSubFormatを確認
-        var sourceExt = sourceFormat as WaveFormatExtensible;
-        var deviceExt = deviceFormat as WaveFormatExtensible;
+        var sourceIsFloat = IsFloatEncoding(source);
+        var targetIsFloat = IsFloatEncoding(target);
 
-        // ソースがIeeeFloat、デバイスがExtensibleの場合
-        if (sourceFormat.Encoding == WaveFormatEncoding.IeeeFloat && deviceExt != null)
+        if (sourceIsFloat != targetIsFloat)
         {
-            // デバイスのSubFormatがIeeeFloatなら互換性あり
-            return deviceExt.SubFormat == IeeeFloatSubFormatGuid;
+            return FormatCompatibility.RequiresConversion;
         }
 
-        // デバイスがIeeeFloat、ソースがExtensibleの場合
-        if (deviceFormat.Encoding == WaveFormatEncoding.IeeeFloat && sourceExt != null)
+        var sourceValidBits = GetValidBits(source);
+        var targetValidBits = GetValidBits(target);
+
+        if (source.BitsPerSample == target.BitsPerSample && sourceValidBits == targetValidBits)
         {
-            // ソースのSubFormatがIeeeFloatなら互換性あり
-            return sourceExt.SubFormat == IeeeFloatSubFormatGuid;
+            return FormatCompatibility.ExactFormatMatch;
         }
 
-        // 両方がExtensibleの場合、SubFormatを比較
-        if (sourceExt != null && deviceExt != null)
+        // 24bit整数PCMの実効データ（ValidBits=24）を32bitコンテナへ左詰め格納する
+        // 「24-in-32」へのロスレス再パッキングのみ対応（Pack24In32WaveProviderの対象範囲と一致させる）。
+        if (!sourceIsFloat && sourceValidBits == 24 && targetValidBits == 24 && target.BitsPerSample == 32)
         {
-            return sourceExt.SubFormat == deviceExt.SubFormat;
+            return FormatCompatibility.LosslessRepacking;
         }
 
-        // その他の場合は互換性なし
-        return false;
+        return FormatCompatibility.RequiresConversion;
     }
 
     /// <summary>
@@ -673,6 +735,10 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
                         // IEEE Float (WaveFormat)
                         TryLogFormat(logger, device, WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, channels),
                             "IeeeFloat", channels, sampleRate, bitsPerSample);
+
+                        // 32bit整数PCM（IEEE Floatと区別するため CreateExtensibleFormat で明示的にPCM指定）
+                        TryLogFormat(logger, device, CreateExtensibleFormat(sampleRate, 32, channels, isFloatSource: false),
+                            "Extensible/PCM(32bit int)", channels, sampleRate, bitsPerSample);
                     }
 
                     if (bitsPerSample == 24)
@@ -727,8 +793,7 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
             .ThenByDescending(r => r)];
 
         // ファイルがFloatかどうかを SubFormat まで含めて判定
-        bool isFloat = fileFormat.Encoding == WaveFormatEncoding.IeeeFloat ||
-                       (fileFormat is WaveFormatExtensible fileExt && fileExt.SubFormat == IeeeFloatSubFormatGuid);
+        bool isFloat = IsFloatEncoding(fileFormat);
 
         // ビット深度候補: ファイルのビット深度を優先し、続いて一般的な深度を試す
         int[] bitsCandidates = isFloat
@@ -740,22 +805,24 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
             foreach (var bitsPerSample in bitsCandidates)
             {
                 // WaveFormatExtensible を優先し、通常フォーマットも続けて試す
-                // NAudio の WaveFormatExtensible(rate, bits, channels): bits==32 → SubFormat=Float、それ以外 → SubFormat=PCM
+                // CreateExtensibleFormat は isFloatSource を明示指定するため、
+                // 32bit整数PCM（bitsPerSample==32かつisFloat==false）でも
+                // 誤って Float SubFormat になることはない。
                 // 24bitの場合は、一部のUSB DAC（例: Fiio DM15 R2R）が排他モードでのみ受理する
                 // 「24-in-32」形式も、16bitへ落ちる前に候補として試す。
                 IEnumerable<WaveFormat> candidates = isFloat
                     ? [
-                        new WaveFormatExtensible(sampleRate, 32, fileFormat.Channels),
+                        CreateExtensibleFormat(sampleRate, 32, fileFormat.Channels, isFloatSource: true),
                         WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, fileFormat.Channels),
                       ]
                     : bitsPerSample == 24
                     ? [
-                        new WaveFormatExtensible(sampleRate, bitsPerSample, fileFormat.Channels),
+                        CreateExtensibleFormat(sampleRate, bitsPerSample, fileFormat.Channels, isFloatSource: false),
                         new WaveFormat(sampleRate, bitsPerSample, fileFormat.Channels),
                         CreatePacked24In32Format(sampleRate, fileFormat.Channels),
                       ]
                     : [
-                        new WaveFormatExtensible(sampleRate, bitsPerSample, fileFormat.Channels),
+                        CreateExtensibleFormat(sampleRate, bitsPerSample, fileFormat.Channels, isFloatSource: false),
                         new WaveFormat(sampleRate, bitsPerSample, fileFormat.Channels),
                       ];
 
@@ -783,7 +850,7 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
     /// 場合があるため、それがそのまま拒否された場合はExtensible相当の形式でも試す。
     /// サンプルデータ自体は変わらないため、どちらが採用されてもビットパーフェクト性は保たれる。
     /// </remarks>
-    private static WaveFormat? ResolveBitPerfectFormat(MMDevice device, WaveFormat fileFormat)
+    private static WaveFormat? ResolveDirectOutputFormat(MMDevice device, WaveFormat fileFormat)
     {
         if (IsFormatSupportedSafe(device, fileFormat))
         {
@@ -792,7 +859,8 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
 
         if (fileFormat is not WaveFormatExtensible)
         {
-            var extensible = new WaveFormatExtensible(fileFormat.SampleRate, fileFormat.BitsPerSample, fileFormat.Channels);
+            var extensible = CreateExtensibleFormat(fileFormat.SampleRate, fileFormat.BitsPerSample, fileFormat.Channels,
+                isFloatSource: IsFloatEncoding(fileFormat));
             if (IsFormatSupportedSafe(device, extensible))
             {
                 return extensible;
@@ -852,16 +920,31 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
     /// 多くのUSB DAC（例: Fiio DM15 R2R）は排他モードで、24-in-24」ではなく
     /// この、24-in-32」形式のみを受理するため、ビットパーフェクト候補の一つとして試す。
     /// </summary>
-    private static WaveFormatExtensible CreatePacked24In32Format(int sampleRate, int channels)
-    {
+    private static WaveFormatExtensible CreatePacked24In32Format(int sampleRate, int channels) =>
         // コンテナ32bitで生成することで blockAlign / averageBytesPerSecond を
-        // 32bitコンテナ基準で正しく計算させる。
-        var format = new WaveFormatExtensible(sampleRate, 32, channels);
+        // 32bitコンテナ基準で正しく計算させつつ、PCM の SubFormat・有効ビット数24を明示する。
+        CreateExtensibleFormat(sampleRate, 32, channels, isFloatSource: false, validBits: 24);
 
-        // 既定では bits=32 により IEEE Float の SubFormat が設定されるため、
-        // PCM の SubFormat へ上書きし、有効ビット数を24に設定する。
-        WaveFormatExtensibleSubFormatField.SetValue(format, PcmSubFormatGuid);
-        WaveFormatExtensibleValidBitsField.SetValue(format, (short)24);
+    /// <summary>
+    /// <see cref="WaveFormatExtensible"/> を生成するための共通ヘルパー。
+    /// NAudio の公開コンストラクタ(rate, bits, channels)は bits==32 の場合に自動的に
+    /// IEEE Float の SubFormat を設定してしまうため、32bit整数PCM（真の32bit int PCMや
+    /// 24-in-32パッキング）を扱う際に誤って Float 扱いとなる問題を避けるべく、
+    /// 呼び出し側が明示的に isFloatSource / validBits を指定してリフレクションで
+    /// subFormat・wValidBitsPerSample を常に上書きする。
+    /// </summary>
+    /// <param name="sampleRate">サンプルレート。</param>
+    /// <param name="bitsPerSample">コンテナのビット数（BlockAlign計算に使われる）。</param>
+    /// <param name="channels">チャンネル数。</param>
+    /// <param name="isFloatSource">IEEE Float として扱うか（false ならPCM）。</param>
+    /// <param name="validBits">実効ビット数。未指定の場合は<paramref name="bitsPerSample"/>と同じ値を使う。</param>
+    private static WaveFormatExtensible CreateExtensibleFormat(int sampleRate, int bitsPerSample, int channels,
+        bool isFloatSource, int? validBits = null)
+    {
+        var format = new WaveFormatExtensible(sampleRate, bitsPerSample, channels);
+
+        WaveFormatExtensibleSubFormatField.SetValue(format, isFloatSource ? IeeeFloatSubFormatGuid : PcmSubFormatGuid);
+        WaveFormatExtensibleValidBitsField.SetValue(format, (short)(validBits ?? bitsPerSample));
 
         return format;
     }

@@ -10,11 +10,6 @@ namespace PlayMuse.Core.Services;
 /// </summary>
 internal sealed class PcmVolumeProvider(IWaveProvider source) : IWaveProvider
 {
-    /// <summary>
-    /// この値以上の音量は「実質最大音量」とみなし、サンプル加工を完全にスキップする。
-    /// </summary>
-    private const float BitPerfectThreshold = 0.999f;
-
     private static readonly Guid IeeeFloatSubFormatGuid = new("00000003-0000-0010-8000-00aa00389b71");
 
     public WaveFormat WaveFormat => source.WaveFormat;
@@ -26,9 +21,11 @@ internal sealed class PcmVolumeProvider(IWaveProvider source) : IWaveProvider
     {
         var bytesRead = source.Read(buffer, offset, count);
 
-        if (bytesRead <= 0 || Volume >= BitPerfectThreshold)
+        if (bytesRead <= 0 || Volume >= 1.0f)
         {
-            // 最大音量時はデコード結果をそのまま出力し、ビットパーフェクトを保つ。
+            // Volume は Math.Clamp(value, 0f, 1f) により 1.0f が上限のため、
+            // ここでの条件は実質的に Volume == 1.0f（完全一致）のときのみ成立する。
+            // 曖昧な閾値を設けず、この場合のみデコード結果をそのまま出力しビットパーフェクトを保つ。
             return bytesRead;
         }
 
