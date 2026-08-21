@@ -208,23 +208,6 @@ public static class WavFormatNormalizer
     }
 
     /// <summary>
-    /// WaveFormatEncoding.Extensible なフォーマットから SubFormat GUID を取得する。
-    /// <see cref="WaveFileReader"/> はヘッダ解析結果として <see cref="WaveFormatExtensible"/> ではなく
-    /// <see cref="WaveFormatExtraData"/>(cbSize 以降の生バイト列を保持する型)を返すため、
-    /// その ExtraData から SubFormat GUID(オフセット6, 16byte: validBitsPerSample(2)+channelMask(4)の直後)を読み取る。
-    /// </summary>
-    private static bool TryGetSubFormat(WaveFormat format, out Guid subFormat)
-    {
-        if (TryGetExtensibleExtraData(format, out _, out subFormat))
-        {
-            return true;
-        }
-
-        subFormat = default;
-        return false;
-    }
-
-    /// <summary>
     /// WAVE_FORMAT_EXTENSIBLE の <see cref="WaveFileReader"/> を、
     /// <see cref="WaveFormat"/> のみを非 Extensible 形式に読み替えたラッパー <see cref="WaveStream"/>。
     /// データのバイト列自体はそのまま inner reader から読み取るため、ファイル I/O は発生しない。
