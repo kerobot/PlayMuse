@@ -570,6 +570,14 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
             return FormatCompatibility.LosslessRepacking;
         }
 
+        // 一部のデバイス(例: FiiO BTR17)は validBits=24 の 24-in-32 に対応せず、
+        // validBits=32 の 32bit PCM のみに対応している。この場合も 24bit → 32bit への
+        // ビット拡張はロスレス(下位8bitをゼロ埋め)で可能なため、LosslessRepacking として扱う。
+        if (!sourceIsFloat && sourceValidBits == 24 && targetValidBits == 32 && target.BitsPerSample == 32)
+        {
+            return FormatCompatibility.LosslessRepacking;
+        }
+
         return FormatCompatibility.RequiresConversion;
     }
 
@@ -765,7 +773,16 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
             {
                 if (logger.IsEnabled(LogLevel.Debug))
                 {
-                    logger.LogDebug("  対応: {SampleRate}Hz {BitsPerSample}bit {Channels}ch ({Label})", sampleRate, bitsPerSample, channels, label);
+                    if (format is WaveFormatExtensible ext)
+                    {
+                        var validBits = (short?)WaveFormatExtensibleValidBitsField.GetValue(ext);
+                        logger.LogDebug("  対応: {SampleRate}Hz {BitsPerSample}bit {Channels}ch ({Label}, validBits={ValidBits})",
+                            sampleRate, bitsPerSample, channels, label, validBits);
+                    }
+                    else
+                    {
+                        logger.LogDebug("  対応: {SampleRate}Hz {BitsPerSample}bit {Channels}ch ({Label})", sampleRate, bitsPerSample, channels, label);
+                    }
                 }
             }
         }
@@ -783,7 +800,7 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
     /// WaveFormatExtensible（SubFormat付き）も候補に含め、より多くのデバイスに対応する。
     /// 対応フォーマットが1つも見つからない場合は null を返す。
     /// </summary>
-    private static WaveFormat? FindBestSupportedFormat(MMDevice device, WaveFormat fileFormat)
+    private WaveFormat? FindBestSupportedFormat(MMDevice device, WaveFormat fileFormat)
     {
         // サンプルレート候補: ファイルのサンプルレートからの差が小さい順（同差なら高い方優先）
         int[] standardRates = [384000, 352800, 192000, 176400, 96000, 88200, 48000, 44100];
@@ -850,7 +867,7 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
     /// 場合があるため、それがそのまま拒否された場合はExtensible相当の形式でも試す。
     /// サンプルデータ自体は変わらないため、どちらが採用されてもビットパーフェクト性は保たれる。
     /// </remarks>
-    private static WaveFormat? ResolveDirectOutputFormat(MMDevice device, WaveFormat fileFormat)
+    private WaveFormat? ResolveDirectOutputFormat(MMDevice device, WaveFormat fileFormat)
     {
         if (IsFormatSupportedSafe(device, fileFormat))
         {
@@ -876,10 +893,34 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
 
         if (isPcm24)
         {
+            // まず validBits=24 の 24-in-32 フォーマットを試す
             var packed24In32 = CreatePacked24In32Format(fileFormat.SampleRate, fileFormat.Channels);
+            if (logger.IsEnabled(LogLevel.Debug))
+            {
+                var validBits = (short?)WaveFormatExtensibleValidBitsField.GetValue(packed24In32);
+                var subFormat = (Guid?)WaveFormatExtensibleSubFormatField.GetValue(packed24In32);
+                logger.LogDebug("  24-in-32フォーマットを試行: {Format} (validBits={ValidBits}, subFormat={SubFormat})",
+                    packed24In32, validBits, subFormat);
+            }
             if (IsFormatSupportedSafe(device, packed24In32))
             {
                 return packed24In32;
+            }
+
+            // 24-in-32 (validBits=24) が対応していない場合、32bit PCM (validBits=32) も試す。
+            // 一部のデバイス(例: FiiO BTR17)は validBits=32 の 32bit PCM のみに対応している。
+            // この場合、24bit データを 32bit に変換することでビットパーフェクト再生が可能。
+            var pcm32 = CreateExtensibleFormat(fileFormat.SampleRate, 32, fileFormat.Channels, isFloatSource: false);
+            if (logger.IsEnabled(LogLevel.Debug))
+            {
+                var validBits = (short?)WaveFormatExtensibleValidBitsField.GetValue(pcm32);
+                var subFormat = (Guid?)WaveFormatExtensibleSubFormatField.GetValue(pcm32);
+                logger.LogDebug("  32bit PCMフォーマットを試行: {Format} (validBits={ValidBits}, subFormat={SubFormat})",
+                    pcm32, validBits, subFormat);
+            }
+            if (IsFormatSupportedSafe(device, pcm32))
+            {
+                return pcm32;
             }
         }
 
@@ -977,14 +1018,33 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
     /// デバイスが指定フォーマットを排他モードでサポートしているかを安全に確認する。
     /// IsFormatSupported が例外を投げた場合は false を返す。
     /// </summary>
-    private static bool IsFormatSupportedSafe(MMDevice device, WaveFormat format)
+    private bool IsFormatSupportedSafe(MMDevice device, WaveFormat format)
     {
         try
         {
-            return device.AudioClient.IsFormatSupported(AudioClientShareMode.Exclusive, format);
+            var result = device.AudioClient.IsFormatSupported(AudioClientShareMode.Exclusive, format);
+            if (logger.IsEnabled(LogLevel.Trace))
+            {
+                if (format is WaveFormatExtensible ext)
+                {
+                    var validBits = (short?)WaveFormatExtensibleValidBitsField.GetValue(ext);
+                    var subFormat = (Guid?)WaveFormatExtensibleSubFormatField.GetValue(ext);
+                    logger.LogTrace("IsFormatSupported: {Result} for {Format} (validBits={ValidBits}, subFormat={SubFormat})",
+                        result, format, validBits, subFormat);
+                }
+                else
+                {
+                    logger.LogTrace("IsFormatSupported: {Result} for {Format}", result, format);
+                }
+            }
+            return result;
         }
-        catch
+        catch (Exception ex)
         {
+            if (logger.IsEnabled(LogLevel.Trace))
+            {
+                logger.LogTrace(ex, "IsFormatSupported failed for {Format}", format);
+            }
             return false;
         }
     }
