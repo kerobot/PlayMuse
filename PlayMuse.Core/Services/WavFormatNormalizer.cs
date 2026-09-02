@@ -27,7 +27,7 @@ public static class WavFormatNormalizer
 {
     /// <summary>
     /// <see cref="WaveFormatExtensible"/> の非公開privateフィールド wValidBitsPerSample。
-    /// NAudioのバージョン2.3.0ではこのフィールドへの公開プロパティが存在しないため、リフレクションで取得する。
+    /// NAudio 2.3.0/2.4.0のいずれもこのフィールドへの公開プロパティを提供していないため、リフレクションで取得（NAudio 2.4.0でも公開APIなし）
     /// </summary>
     private static readonly FieldInfo? WaveFormatExtensibleValidBitsField =
         typeof(WaveFormatExtensible).GetField("wValidBitsPerSample", BindingFlags.NonPublic | BindingFlags.Instance);
@@ -178,7 +178,7 @@ public static class WavFormatNormalizer
         switch (format)
         {
             case WaveFormatExtensible extensible:
-                // NAudio 2.3.0 では wValidBitsPerSample はprivateフィールドのため、リフレクションで取得
+                // wValidBitsPerSample はprivateフィールドのため、リフレクションで取得（NAudio 2.4.0でも公開APIなし）
                 if (WaveFormatExtensibleValidBitsField != null)
                 {
                     var validBits = WaveFormatExtensibleValidBitsField.GetValue(extensible);
@@ -212,17 +212,8 @@ public static class WavFormatNormalizer
     /// <see cref="WaveFormat"/> のみを非 Extensible 形式に読み替えたラッパー <see cref="WaveStream"/>。
     /// データのバイト列自体はそのまま inner reader から読み取るため、ファイル I/O は発生しない。
     /// </summary>
-    private sealed class ReinterpretedWaveStream : WaveStream
+    private sealed class ReinterpretedWaveStream(WaveFileReader innerReader, WaveFormat reinterpretedFormat) : WaveStream
     {
-        private readonly WaveFileReader innerReader;
-        private readonly WaveFormat reinterpretedFormat;
-
-        public ReinterpretedWaveStream(WaveFileReader innerReader, WaveFormat reinterpretedFormat)
-        {
-            this.innerReader = innerReader;
-            this.reinterpretedFormat = reinterpretedFormat;
-        }
-
         public override WaveFormat WaveFormat => reinterpretedFormat;
 
         public override long Length => innerReader.Length;
