@@ -494,7 +494,8 @@ public partial class MainWindow : Window
 
         if (e.Data.GetData(DataFormats.FileDrop) is string[] paths)
         {
-            viewModel.AddFiles(paths);
+            var insertIndex = sender is ListBox listBox ? GetDropTarget(listBox, e).TargetIndex : (int?)null;
+            viewModel.AddFiles(paths, insertIndex);
         }
 
         e.Handled = true;

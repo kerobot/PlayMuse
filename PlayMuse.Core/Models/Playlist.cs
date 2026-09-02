@@ -28,6 +28,27 @@ public sealed class Playlist
         }
     }
 
+    /// <summary>
+    /// 指定インデックス位置にトラックを挿入する。挿入位置が現在再生インデックス以下の場合、
+    /// 現在再生中のトラック参照を維持するためCurrentIndexを後方へずらす。
+    /// </summary>
+    public void Insert(int index, Track track)
+    {
+        ArgumentNullException.ThrowIfNull(track);
+
+        var clampedIndex = Math.Clamp(index, 0, Tracks.Count);
+        Tracks.Insert(clampedIndex, track);
+
+        if (CurrentIndex < 0)
+        {
+            CurrentIndex = 0;
+        }
+        else if (clampedIndex <= CurrentIndex)
+        {
+            CurrentIndex++;
+        }
+    }
+
     public bool Remove(Track track)
     {
         ArgumentNullException.ThrowIfNull(track);

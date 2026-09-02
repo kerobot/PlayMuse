@@ -20,6 +20,8 @@ public interface IPlaylistService
 
     void Add(Track track);
 
+    void Insert(int index, Track track);
+
     bool Remove(Track track);
 
     void Clear();

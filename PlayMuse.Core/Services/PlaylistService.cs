@@ -36,6 +36,15 @@ public sealed class PlaylistService : IPlaylistService
         RaiseIfCurrentTrackChanged(previousTrack);
     }
 
+    public void Insert(int index, Track track)
+    {
+        ArgumentNullException.ThrowIfNull(track);
+
+        var previousTrack = playlist.CurrentTrack;
+        playlist.Insert(index, track);
+        RaiseIfCurrentTrackChanged(previousTrack);
+    }
+
     public bool Remove(Track track)
     {
         ArgumentNullException.ThrowIfNull(track);

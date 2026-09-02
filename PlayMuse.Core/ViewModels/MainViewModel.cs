@@ -223,13 +223,15 @@ public partial class MainViewModel : ObservableObject, IDisposable
     /// ドラッグ&ドロップおよび「ファイルを開く」ダイアログの両方から共通で利用される。
     /// フォルダが指定された場合は配下（サブフォルダ含む）の対応音楽ファイルをすべて追加する。
     /// 非対応拡張子のファイルはスキップし、ステータスメッセージで通知する。
+    /// insertIndexを指定した場合、プレイリストの末尾ではなくその位置に順序を保ったまま挿入する。
     /// </summary>
-    public void AddFiles(IEnumerable<string> paths)
+    public void AddFiles(IEnumerable<string> paths, int? insertIndex = null)
     {
         var resolvedFilePaths = ExpandToAudioFilePaths(paths);
 
         var addedCount = 0;
         var skippedCount = 0;
+        var nextInsertIndex = insertIndex;
 
         foreach (var filePath in resolvedFilePaths)
         {
@@ -240,7 +242,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
             }
 
             var track = new Track(filePath);
-            playlistService.Add(track);
+            if (nextInsertIndex is int index)
+            {
+                playlistService.Insert(index, track);
+                nextInsertIndex = index + 1;
+            }
+            else
+            {
+                playlistService.Add(track);
+            }
+
             addedCount++;
 
             _ = LoadMetadataAsync(track);
