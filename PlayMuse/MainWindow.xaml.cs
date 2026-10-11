@@ -29,12 +29,6 @@ public partial class MainWindow : Window
 
     /// <summary>L/R縦型レベルメーターのレーン数（固定で2）。</summary>
     private const int LevelMeterLaneCount = 2;
-
-    /// <summary>レベルメーターとスペクトラム表示の間に空ける、スペクトラム1列分と同幅の視覚的ギャップの列数。</summary>
-    private const int LevelMeterGapColumns = 1;
-
-    /// <summary>Canvas上の横方向の総スロット数（レベルメーター2 + ギャップ1 + スペクトラム16列）。</summary>
-    private const int TotalHorizontalSlotCount = LevelMeterLaneCount + LevelMeterGapColumns + SpectrumColumnCount;
     private static readonly string[] SpectrumFrequencyLabels =
     [
         "20", "30", "40", "70", "120", "190", "310", "490",
@@ -54,6 +48,7 @@ public partial class MainWindow : Window
     private readonly double[,] levelMeterCellOpacities = new double[LevelMeterLaneCount, SpectrumRowCount];
     private readonly System.Windows.Shapes.Line[] spectrumVerticalGridLines = new System.Windows.Shapes.Line[SpectrumColumnCount + 1];
     private readonly System.Windows.Shapes.Line[] spectrumHorizontalGridLines = new System.Windows.Shapes.Line[SpectrumRowCount + 1];
+    private readonly System.Windows.Shapes.Line[] levelMeterHorizontalGridLines = new System.Windows.Shapes.Line[SpectrumRowCount + 1];
     private Point? dragStartPoint;
     private Track? draggingTrack;
     private DropIndicatorAdorner? dropIndicatorAdorner;
@@ -91,6 +86,7 @@ public partial class MainWindow : Window
         };
 
         BuildSpectrumGrid();
+        BuildLevelMeterGrid();
         RestoreWindowBounds();
 
         Loaded += (_, _) => positionTimer.Start();
@@ -227,7 +223,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private static void AnimatePanelHeight(Border panel, double targetHeight, bool animate)
+    private static void AnimatePanelHeight(FrameworkElement panel, double targetHeight, bool animate)
     {
         if (!animate)
         {
@@ -255,23 +251,9 @@ public partial class MainWindow : Window
         SpectrumLabelsGrid.ColumnDefinitions.Clear();
         SpectrumLabelsGrid.Children.Clear();
 
-        for (var slot = 0; slot < TotalHorizontalSlotCount; slot++)
+        for (var col = 0; col < SpectrumColumnCount; col++)
         {
             SpectrumLabelsGrid.ColumnDefinitions.Add(new ColumnDefinition());
-        }
-
-        for (var lane = 0; lane < LevelMeterLaneCount; lane++)
-        {
-            var laneLabel = new TextBlock
-            {
-                Text = lane == 0 ? "L" : "R",
-                FontSize = 9,
-                Opacity = 0.6,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                Foreground = (Brush)FindResource("AccentGlowBrush"),
-            };
-            Grid.SetColumn(laneLabel, lane);
-            SpectrumLabelsGrid.Children.Add(laneLabel);
         }
 
         for (var col = 0; col < SpectrumColumnCount; col++)
@@ -284,7 +266,7 @@ public partial class MainWindow : Window
                 HorizontalAlignment = HorizontalAlignment.Center,
                 Foreground = (Brush)FindResource("AccentGlowBrush"),
             };
-            Grid.SetColumn(label, LevelMeterLaneCount + LevelMeterGapColumns + col);
+            Grid.SetColumn(label, col);
             SpectrumLabelsGrid.Children.Add(label);
         }
 
@@ -329,6 +311,51 @@ public partial class MainWindow : Window
             }
         }
 
+        LayoutSpectrumGrid();
+    }
+
+    /// <summary>
+    /// L/Rレベルメーター欄に縦10マス×横2レーンの罫線と、各マスに対応するLED風の矩形を配置する。
+    /// ウィンドウサイズ変更時も比率を維持できるよう、実際の座標計算は <see cref="LevelMeterCanvas_SizeChanged"/> で行う。
+    /// </summary>
+    private void BuildLevelMeterGrid()
+    {
+        LevelMeterLabelsGrid.ColumnDefinitions.Clear();
+        LevelMeterLabelsGrid.Children.Clear();
+
+        for (var lane = 0; lane < LevelMeterLaneCount; lane++)
+        {
+            LevelMeterLabelsGrid.ColumnDefinitions.Add(new ColumnDefinition());
+        }
+
+        for (var lane = 0; lane < LevelMeterLaneCount; lane++)
+        {
+            var laneLabel = new TextBlock
+            {
+                Text = lane == 0 ? "L" : "R",
+                FontSize = 9,
+                Opacity = 0.6,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Foreground = (Brush)FindResource("AccentGlowBrush"),
+            };
+            Grid.SetColumn(laneLabel, lane);
+            LevelMeterLabelsGrid.Children.Add(laneLabel);
+        }
+
+        LevelMeterCanvas.Children.Clear();
+
+        for (var row = 0; row <= SpectrumRowCount; row++)
+        {
+            var line = new System.Windows.Shapes.Line
+            {
+                Stroke = (Brush)FindResource("AccentDimBrush"),
+                StrokeThickness = 0.5,
+                Opacity = 0.4,
+            };
+            levelMeterHorizontalGridLines[row] = line;
+            LevelMeterCanvas.Children.Add(line);
+        }
+
         for (var lane = 0; lane < LevelMeterLaneCount; lane++)
         {
             for (var row = 0; row < SpectrumRowCount; row++)
@@ -340,17 +367,19 @@ public partial class MainWindow : Window
                 levelMeterCells[lane, row] = cell;
                 levelMeterCellFills[lane, row] = cell.Fill;
                 levelMeterCellOpacities[lane, row] = cell.Opacity;
-                SpectrumCanvas.Children.Add(cell);
+                LevelMeterCanvas.Children.Add(cell);
             }
         }
 
-        LayoutSpectrumGrid();
+        LayoutLevelMeterGrid();
     }
 
     /// <summary>
     /// Canvasのサイズ変更に応じて各マスの位置・サイズを再計算する。縦横のマス数は変更せず表示比率のみ追従する。
     /// </summary>
     private void SpectrumCanvas_SizeChanged(object sender, SizeChangedEventArgs e) => LayoutSpectrumGrid();
+
+    private void LevelMeterCanvas_SizeChanged(object sender, SizeChangedEventArgs e) => LayoutLevelMeterGrid();
 
     private void LayoutSpectrumGrid()
     {
@@ -361,18 +390,14 @@ public partial class MainWindow : Window
             return;
         }
 
-        // レベルメーター2レーン・ギャップ1列・スペクトラム16列を均等スロットとして割り付け、
-        // スペクトラム表示幅をレベルメーター分だけ狭める。
-        var slotWidth = width / TotalHorizontalSlotCount;
-        var spectrumOffsetX = slotWidth * (LevelMeterLaneCount + LevelMeterGapColumns);
-        var cellWidth = slotWidth;
+        var cellWidth = width / SpectrumColumnCount;
         var cellHeight = height / SpectrumRowCount;
         const double cellMargin = 1.0;
 
         for (var col = 0; col <= SpectrumColumnCount; col++)
         {
             var line = spectrumVerticalGridLines[col];
-            var x = spectrumOffsetX + col * cellWidth;
+            var x = col * cellWidth;
             line.X1 = x;
             line.Y1 = 0;
             line.X2 = x;
@@ -396,10 +421,34 @@ public partial class MainWindow : Window
                 var cell = spectrumCells[col, row];
                 cell.Width = Math.Max(0, cellWidth - cellMargin * 2);
                 cell.Height = Math.Max(0, cellHeight - cellMargin * 2);
-                Canvas.SetLeft(cell, spectrumOffsetX + col * cellWidth + cellMargin);
+                Canvas.SetLeft(cell, col * cellWidth + cellMargin);
                 // 行0が最上段（最大レベル）になるよう上から配置する。
                 Canvas.SetTop(cell, row * cellHeight + cellMargin);
             }
+        }
+    }
+
+    private void LayoutLevelMeterGrid()
+    {
+        var width = LevelMeterCanvas.ActualWidth;
+        var height = LevelMeterCanvas.ActualHeight;
+        if (width <= 0 || height <= 0)
+        {
+            return;
+        }
+
+        var laneWidth = width / LevelMeterLaneCount;
+        var cellHeight = height / SpectrumRowCount;
+        const double cellMargin = 1.0;
+
+        for (var row = 0; row <= SpectrumRowCount; row++)
+        {
+            var line = levelMeterHorizontalGridLines[row];
+            var y = row * cellHeight;
+            line.X1 = 0;
+            line.Y1 = y;
+            line.X2 = width;
+            line.Y2 = y;
         }
 
         for (var lane = 0; lane < LevelMeterLaneCount; lane++)
@@ -407,13 +456,14 @@ public partial class MainWindow : Window
             for (var row = 0; row < SpectrumRowCount; row++)
             {
                 var cell = levelMeterCells[lane, row];
-                cell.Width = Math.Max(0, slotWidth - cellMargin * 2);
+                cell.Width = Math.Max(0, laneWidth - cellMargin * 2);
                 cell.Height = Math.Max(0, cellHeight - cellMargin * 2);
-                Canvas.SetLeft(cell, lane * slotWidth + cellMargin);
+                Canvas.SetLeft(cell, lane * laneWidth + cellMargin);
                 Canvas.SetTop(cell, row * cellHeight + cellMargin);
             }
         }
     }
+
 
     /// <summary>
     /// 33ms間隔でViewModelから16バンド分のレベル・ピークホールド値（連続値）を取得し、LEDセルの
