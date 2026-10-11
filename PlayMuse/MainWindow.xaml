@@ -1,4 +1,6 @@
-﻿<Window x:Class="PlayMuse.MainWindow"
+﻿
+    
+    <Window x:Class="PlayMuse.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -18,6 +20,8 @@
         <converters:TimeSpanToStringConverter x:Key="TimeSpanToStringConverter"/>
         <converters:NullToVisibilityConverter x:Key="NullToVisibilityConverter"/>
         <converters:ByteArrayToImageSourceConverter x:Key="ByteArrayToImageSourceConverter"/>
+        <converters:PlaybackStartedAlbumArtVisibilityConverter x:Key="PlaybackStartedAlbumArtVisibilityConverter"/>
+        <converters:PlaybackStartedAlbumArtVisibilityConverter x:Key="InversePlaybackStartedAlbumArtVisibilityConverter" Invert="True"/>
         <converters:SampleRateToStringConverter x:Key="SampleRateToStringConverter"/>
         <converters:AudioFormatToStringConverter x:Key="AudioFormatToStringConverter"/>
         <converters:DraggingOpacityConverter x:Key="DraggingOpacityConverter"/>
@@ -214,12 +218,43 @@
         <!-- オーディオ情報パネル -->
         <Border x:Name="TrackInfoPanel" Grid.Row="4" Margin="12,8,12,0" Padding="8" ClipToBounds="True"
                 Background="{StaticResource PanelDarkBrush}" BorderBrush="{StaticResource AccentDimBrush}" BorderThickness="1">
-            <TextBlock Text="{Binding AudioInfoText}"
-                       Foreground="{StaticResource AccentGlowBrush}"
-                       FontFamily="Consolas, Courier New"
-                       FontSize="11"
-                       LineHeight="18"
-                       TextWrapping="Wrap"/>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Border Grid.Column="0" Width="86" Height="86" Margin="0,0,8,0"
+                        Background="{StaticResource PanelMidBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                    <Grid>
+                        <Image Source="{Binding CurrentTrack.AlbumArtData, Converter={StaticResource ByteArrayToImageSourceConverter}}"
+                               Stretch="UniformToFill"
+                               RenderOptions.BitmapScalingMode="HighQuality">
+                            <Image.Visibility>
+                                <MultiBinding Converter="{StaticResource PlaybackStartedAlbumArtVisibilityConverter}" FallbackValue="Collapsed">
+                                    <Binding Path="HasPlaybackStarted"/>
+                                    <Binding Path="CurrentTrack.AlbumArtData"/>
+                                </MultiBinding>
+                            </Image.Visibility>
+                        </Image>
+                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <StackPanel.Visibility>
+                                <MultiBinding Converter="{StaticResource InversePlaybackStartedAlbumArtVisibilityConverter}" FallbackValue="Visible">
+                                    <Binding Path="HasPlaybackStarted"/>
+                                    <Binding Path="CurrentTrack.AlbumArtData"/>
+                                </MultiBinding>
+                            </StackPanel.Visibility>
+                            <TextBlock Text="&#9834;" FontSize="20" Opacity="0.5" HorizontalAlignment="Center"/>
+                            <TextBlock Text="NO ART" FontSize="9" Opacity="0.5" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+                <TextBlock Grid.Column="1" Text="{Binding AudioInfoText}"
+                           Foreground="{StaticResource AccentGlowBrush}"
+                           FontFamily="Consolas, Courier New"
+                           FontSize="11"
+                           LineHeight="18"
+                           TextWrapping="Wrap"/>
+            </Grid>
         </Border>
 
         <!-- SPECTRUM ANALYZER ヘッダー -->

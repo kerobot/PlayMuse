@@ -6,7 +6,7 @@ namespace PlayMuse.Core.Services;
 /// リサンプル後・WasapiOut初期化前の位置に挟み込み、再生データを透過的にそのまま出力しつつ
 /// <see cref="ISpectrumAnalyzerService"/> へキャプチャさせるパススルー <see cref="IWaveProvider"/>。
 /// </summary>
-internal sealed class SpectrumTapProvider(IWaveProvider source, ISpectrumAnalyzerService spectrumAnalyzer) : IWaveProvider
+internal sealed class SpectrumTapProvider(IWaveProvider source, ISpectrumAnalyzerService spectrumAnalyzer, IChannelLevelMeterService channelLevelMeter) : IWaveProvider
 {
     public WaveFormat WaveFormat => source.WaveFormat;
 
@@ -17,6 +17,7 @@ internal sealed class SpectrumTapProvider(IWaveProvider source, ISpectrumAnalyze
         if (bytesRead > 0)
         {
             spectrumAnalyzer.PushSamples(buffer.AsSpan(offset, bytesRead), WaveFormat);
+            channelLevelMeter.PushSamples(buffer.AsSpan(offset, bytesRead), WaveFormat);
         }
 
         return bytesRead;

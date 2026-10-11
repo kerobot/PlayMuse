@@ -38,7 +38,8 @@ public class MainViewModelTests
             new FakeDispatcherService(),
             metadataService,
             settingsService,
-            new SpectrumAnalyzerService());
+            new SpectrumAnalyzerService(),
+            new ChannelLevelMeterService());
 
         return new Fixture(viewModel, playbackService, playlistService, deviceService, fileDialogService, metadataService, settingsService);
     }

@@ -23,6 +23,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private readonly IMetadataService metadataService;
     private readonly ISettingsService settingsService;
     private readonly ISpectrumAnalyzerService spectrumAnalyzer;
+    private readonly IChannelLevelMeterService channelLevelMeter;
     private readonly ILogger<MainViewModel> logger;
     private readonly bool isInitializing = true;
     private bool isAutoSwitchingDevice;
@@ -34,6 +35,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     public partial Track? SelectedTrack { get; set; }
+
+    /// <summary>
+    /// 起動直後の自動読み込みで先頭トラックが選択されただけの状態ではアルバムアートを表示しないための
+    /// フラグ。ユーザーが実際に再生を開始した時点で true になり、以降は維持される。
+    /// </summary>
+    [ObservableProperty]
+    public partial bool HasPlaybackStarted { get; set; }
 
     [ObservableProperty]
     public partial PlaybackState PlaybackStatus { get; set; } = PlaybackState.Stopped;
@@ -83,6 +91,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         IMetadataService metadataService,
         ISettingsService settingsService,
         ISpectrumAnalyzerService spectrumAnalyzer,
+        IChannelLevelMeterService channelLevelMeter,
         ILogger<MainViewModel>? logger = null)
     {
         this.playbackService = playbackService;
@@ -93,6 +102,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         this.metadataService = metadataService;
         this.settingsService = settingsService;
         this.spectrumAnalyzer = spectrumAnalyzer;
+        this.channelLevelMeter = channelLevelMeter;
         this.logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<MainViewModel>.Instance;
 
         this.playbackService.StateChanged += OnPlaybackStateChanged;
@@ -547,6 +557,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
     /// </summary>
     public IReadOnlyList<SpectrumBandLevel> GetSpectrumLevels() => spectrumAnalyzer.GetBandLevels();
 
+    /// <summary>
+    /// SPECTRUM ANALYZER欄の描画タイマーから呼び出され、L/Rチャンネルの現在レベル・ピークホールドレベルを取得する。
+    /// </summary>
+    public (ChannelLevel Left, ChannelLevel Right) GetChannelLevels() => channelLevelMeter.GetLevels();
+
     public void RefreshPosition()
     {
         if (IsSeeking)
@@ -566,6 +581,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
             {
                 // 正常に再生が開始できたので、自動スキップの連続カウントをリセットする。
                 trackUnavailableSkipCount = 0;
+
+                // 実際に再生が開始されたので、以降はアルバムアート表示を許可する。
+                HasPlaybackStarted = true;
 
                 // Track.Durationはメタデータの非同期読み込み完了時に更新されるため、
                 // 起動直後などメタデータ読み込みが完了する前に再生を開始すると0のまま取り残されることがある。

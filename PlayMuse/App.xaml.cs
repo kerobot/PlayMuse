@@ -114,6 +114,7 @@ public partial class App : Application
         });
         services.AddSingleton<IAudioDeviceService, AudioDeviceService>();
         services.AddSingleton<ISpectrumAnalyzerService, SpectrumAnalyzerService>();
+        services.AddSingleton<IChannelLevelMeterService, ChannelLevelMeterService>();
         services.AddSingleton<IAudioPlaybackService, AudioPlaybackService>();
         services.AddSingleton<IPlaylistService, PlaylistService>();
         services.AddSingleton<IDispatcherService, WpfDispatcherService>();
