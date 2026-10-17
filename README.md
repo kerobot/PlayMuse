@@ -3,6 +3,12 @@
 Windows 向けのビットパーフェクト再生を追求した WPF 製音楽プレーヤーです。
 WASAPI 排他モードを活用し、ファイルが持つ本来のビット深度・サンプルレートを一切加工せずにオーディオデバイスへ届けることを目標に設計されています。
 
+## ダウンロード
+
+[GitHub Releases](https://github.com/kerobot/PlayMuse/releases) から最新の `PlayMuse-vX.Y.Z-win-x64.zip` をダウンロードし、展開後に `PlayMuse.exe` を実行してください。
+
+本アプリはフレームワーク依存でビルドされているため、実行には [.NET Desktop Runtime 10](https://dotnet.microsoft.com/download/dotnet/10.0) のインストールが別途必要です。
+
 ## 概要
 
 PlayMuse は、MP3 / FLAC / WAV / AAC / M4A といった主要な音楽ファイル形式を再生できるシンプルな WPF デスクトップアプリケーションです。

@@ -1,0 +1,80 @@
+name: Release
+
+on:
+  push:
+    branches: [master]
+    paths-ignore:
+      - '.github/workflows/**'
+      - '**.md'
+      - 'LICENSE.txt'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Bump version
+        id: bump_version
+        shell: pwsh
+        run: |
+          $csprojPath = "PlayMuse/PlayMuse.csproj"
+          $content = Get-Content $csprojPath -Raw
+          if ($content -notmatch '<Version>(\d+)\.(\d+)\.(\d+)</Version>') {
+            throw "Version element not found in $csprojPath"
+          }
+          $major = [int]$Matches[1]
+          $minor = [int]$Matches[2]
+          $patch = [int]$Matches[3] + 1
+          $newVersion = "$major.$minor.$patch"
+          $newContent = $content -replace '<Version>\d+\.\d+\.\d+</Version>', "<Version>$newVersion</Version>"
+          Set-Content -Path $csprojPath -Value $newContent -NoNewline
+          echo "version=$newVersion" >> $env:GITHUB_OUTPUT
+
+      - name: Commit version bump and create tag
+        shell: pwsh
+        run: |
+          $version = "${{ steps.bump_version.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add PlayMuse/PlayMuse.csproj
+          git commit -m "Bump version to $version [skip ci]"
+          git tag "v$version"
+          git push origin HEAD:master
+          git push origin "v$version"
+
+      - name: Publish
+        shell: pwsh
+        run: |
+          dotnet publish PlayMuse/PlayMuse.csproj -c Release -p:PublishProfile=FolderProfile
+
+      - name: Zip artifacts
+        id: zip
+        shell: pwsh
+        run: |
+          $version = "${{ steps.bump_version.outputs.version }}"
+          $publishDir = "PlayMuse/bin/Release/net10.0-windows/publish/win-x64"
+          $zipName = "PlayMuse-v$version-win-x64.zip"
+          Compress-Archive -Path "$publishDir/*" -DestinationPath $zipName
+          echo "zip_name=$zipName" >> $env:GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ steps.bump_version.outputs.version }}"
+          name: "v${{ steps.bump_version.outputs.version }}"
+          files: ${{ steps.zip.outputs.zip_name }}
