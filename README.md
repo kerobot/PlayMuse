@@ -9,6 +9,16 @@ WASAPI 排他モードを活用し、ファイルが持つ本来のビット深�
 
 本アプリはフレームワーク依存でビルドされているため、実行には [.NET Desktop Runtime 10](https://dotnet.microsoft.com/download/dotnet/10.0) のインストールが別途必要です。
 
+> [!IMPORTANT]
+> Windows のセキュリティ警告について
+>
+> PlayMuse は個人で開発・公開している Windows 向けアプリケーションです。 起動時に Microsoft Defender SmartScreen により 「Windows によって PC が保護されました」と表示される場合があります。
+>
+> ダウンロードする際は、本 GitHub リポジトリの Releases から公開されている ファイルであることをご確認ください。
+
+> [!NOTE]
+> 本ソフトウェアは無保証で提供しています。 ご利用は自己責任でお願いいたします。
+
 ## 概要
 
 PlayMuse は、MP3 / FLAC / WAV / AAC / M4A といった主要な音楽ファイル形式を再生できるシンプルな WPF デスクトップアプリケーションです。
