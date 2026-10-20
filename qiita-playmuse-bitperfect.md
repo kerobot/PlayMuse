@@ -1,7 +1,5 @@
 # WASAPI 排他モードでビットパーフェクト再生する音楽プレーヤーを .NET 10 C# で作ってみた
 
-Windows C# WPF NAudio WASAPI 
-
 ## はじめに
 
 普段からロスレス音源を中心に音楽をよく聴いています。楽曲配信サービスとしては Spotify をメインに利用しており、2026年3月頃より排他モードが実装されて最大44.1kHz/24bitのロスレス音源をビットパーフェクトで再生できるようになりました。
@@ -65,7 +63,11 @@ Windows の既定の音声パイプラインは、共有モードで動作する
 - アプリ側での不要な float 変換や音量調整によるサンプル値の書き換え
 - 中間段（USB DAC 等）でのリサンプリング
 
-PlayMuse では、WASAPI 排他モードでデバイスが受け付け可能なフォーマットとファイルのフォーマットを完全一致させ、OS のミキサーやアプリ内の不要な変換を排除することで、PC から最初のデジタル出力機器へ渡すサンプル値をファイルの値と完全に一致させることを目指しています。といっても、耳で明確に違いがわかるようなものではないですけどね…。
+PlayMuse では、WASAPI 排他モードでデバイスが受け付け可能なフォーマットとファイルのフォーマットを完全一致させ、OS のミキサーやアプリ内の不要な変換を排除することで、PC から最初のデジタル出力機器へ渡すサンプル値をファイルの値と完全に一致させることを目指しています。
+
+なお、ビットパーフェクトは必ず音質が向上するというものではなく、データの忠実性を保証する話であって、人間が差を聴き取れるかは別問題ということに注意が必要です。
+
+また、WASAPI排他モードには、通知音も含めて他アプリの音が鳴らなくなるというデメリットもありますので、常に排他モードが正解というわけではありません。
 
 ### 再生環境の例で見るデジタル区間とアナログ区間
 
@@ -299,6 +301,8 @@ private static FormatCompatibility ClassifyFormatCompatibility(WaveFormat source
 ### 24-in-32 フォーマットの生成
 
 NAudio の `WaveFormatExtensible` の公開コンストラクタは、コンテナビット数と有効ビット数を常に同一値にしてしまいます（`bits` を 32 で構築すると SubFormat も IEEE Float になってしまいます）。そこで、非公開フィールドをリフレクションで直接書き換えることで「コンテナ 32bit・有効ビット 24bit・SubFormat=PCM」の組み合わせを作っています。
+
+なお、NAudio 3.0 系であれば、 `WaveFormatExtensible` の公開コンストラクタで有効ビット数やサブフォーマットも含めて任意で指定できるようになっています。
 
 ```csharp
 private static readonly FieldInfo WaveFormatExtensibleValidBitsField =
@@ -551,6 +555,66 @@ isSilentTimeout = lastSampleTicks == NoSampleReceivedTicks
 
 WASAPI 排他モードや `WaveFormatExtensible` の SubFormat 比較、24-in-32 PCM パッキング形式など、普段の開発ではあまり触れない領域だったため苦労しましたが、その分「ファイルに記録された値をそのまま送り届ける」という当初の目標を形にできたのは良い経験になりました。
 
-ロスレス音源のビットパーフェクト再生について、そもそもの理解が不足している（実装が間違っている）可能性があるので、引き続き理解を深めていきます。
+ロスレス音源のビットパーフェクト再生について、そもそもの理解が不足している（実装が間違っている）可能性があるので、NAudio 3.0系へのアップデートを含めて、引き続き弄りながら理解を深めていきます。
 
 アプリの外観やスペクトラムアナライザー表示についてもこだわったので、見た目的にもメロい音楽プレーヤーアプリができたと思います。今後はリピート再生やシャッフル再生、ギャップレス再生など、音楽をさらに楽しむ機能を追加してみたいです。
+
+## 追記：NAudio 3.3.0 へのバージョンアップ
+
+本記事の公開後、NAudio を 2.x 系から 3.3.0 へバージョンアップしました。本編のコードは当時のまま残していますが、ここでは差分の概要と対応内容を補足として記録しておきます。
+
+NAudio 3.x 系では、ビットパーフェクト再生に関わる部分にもいくつか変更が入っていました。
+
+- `IWaveProvider.Read` が `byte[] buffer, int offset, int count` から `Span<byte> buffer` ベースのシグネチャへ変更された
+- `IMMNotificationClient` の自前実装が内部化され、`MMDeviceEnumerator.CreateNotificationClient()` が返すオブジェクトのイベント購読に置き換える必要が出てきた
+- `WasapiOut` に代わって `WasapiPlayerBuilder` / `WasapiPlayer` が推奨される出力経路になった
+- `WaveFormatExtensible` の `wValidBitsPerSample` / `SubFormat` が公開プロパティとして参照できるようになり、本編で紹介したようなリフレクションによる書き換えが不要になった
+
+対応した手順は次のとおりです。
+
+1. **自前の `IWaveProvider` 実装を Span 対応に書き換え**
+
+   `PcmVolumeProvider` / `Pack24In32WaveProvider` / `SpectrumTapProvider` の `Read(byte[], int, int)` を `Read(Span<byte>)` に変更しました。本編で紹介した `SpectrumTapProvider` は、次のようになりました。
+
+   ```csharp
+   internal sealed class SpectrumTapProvider(IWaveProvider source, ISpectrumAnalyzerService spectrumAnalyzer) : IWaveProvider
+   {
+       public WaveFormat WaveFormat => source.WaveFormat;
+
+       public int Read(Span<byte> buffer)
+       {
+           var bytesRead = source.Read(buffer);
+
+           if (bytesRead > 0)
+           {
+               spectrumAnalyzer.PushSamples(buffer[..bytesRead], WaveFormat);
+           }
+
+           return bytesRead;
+       }
+   }
+   ```
+
+   オフセット管理が `Span` のスライスに置き換わっただけで、ロジック自体は変わっていません。
+
+2. **`WaveFormatExtensible` のリフレクション除去**
+
+   本編で `wValidBitsPerSample` / `SubFormat` を非公開フィールド経由で書き換えていた箇所を、公開プロパティ経由の実装に置き換えました。これにより、リフレクションに依存していた分かりにくいコードがなくなりました。
+
+3. **デバイス通知を内部化された API へ移行**
+
+   `AudioDeviceService` で `IMMNotificationClient` を直接実装していた部分を廃止し、`MMDeviceEnumerator.CreateNotificationClient()` から取得できる通知クライアントのイベント（`DeviceStateChanged` / `DeviceAdded` / `DeviceRemoved` / `DefaultDeviceChanged` / `PropertyValueChanged`）を購読する形に変更しました。
+
+4. **`WasapiOut` から `WasapiPlayer` へ移行**
+
+   出力初期化処理を `WasapiPlayerBuilder` によるビルダー形式に書き換え、排他モード／共有モードの指定も `WithExclusiveMode()` / `WithSharedMode()` を使う形にしました。
+
+5. **`MMDevice.AudioClient` から `CreateAudioClient()` へ移行**
+
+   フォーマット互換性確認のために `AudioClient` を都度取得していた箇所を、`using` で破棄できる `MMDevice.CreateAudioClient()` に置き換えました。
+
+6. **ビルドとテストで動作を確認**
+
+   上記の変更をひと通り終えたあと、ソリューション全体のビルドが警告なく通ることと、既存の単体テストがすべて成功することを確認しました。
+
+ビットパーフェクト再生のロジック自体（フォーマット比較・24-in-32 パッキング・リサンプリングのフォールバックなど）には手を入れておらず、今回はあくまで NAudio のバージョン追従が目的です。ライブラリのメジャーバージョンアップに追従する際は、こうした地味な書き換えが地味に効いてくるなとあらためて感じました。

@@ -3,21 +3,21 @@ using NAudio.Wave;
 namespace PlayMuse.Core.Services;
 
 /// <summary>
-/// リサンプル後・WasapiOut初期化前の位置に挟み込み、再生データを透過的にそのまま出力しつつ
+/// リサンプル後・WasapiPlayer初期化前の位置に挟み込み、再生データを透過的にそのまま出力しつつ
 /// <see cref="ISpectrumAnalyzerService"/> へキャプチャさせるパススルー <see cref="IWaveProvider"/>。
 /// </summary>
 internal sealed class SpectrumTapProvider(IWaveProvider source, ISpectrumAnalyzerService spectrumAnalyzer, IChannelLevelMeterService channelLevelMeter) : IWaveProvider
 {
     public WaveFormat WaveFormat => source.WaveFormat;
 
-    public int Read(byte[] buffer, int offset, int count)
+    public int Read(Span<byte> buffer)
     {
-        var bytesRead = source.Read(buffer, offset, count);
+        var bytesRead = source.Read(buffer);
 
         if (bytesRead > 0)
         {
-            spectrumAnalyzer.PushSamples(buffer.AsSpan(offset, bytesRead), WaveFormat);
-            channelLevelMeter.PushSamples(buffer.AsSpan(offset, bytesRead), WaveFormat);
+            spectrumAnalyzer.PushSamples(buffer[..bytesRead], WaveFormat);
+            channelLevelMeter.PushSamples(buffer[..bytesRead], WaveFormat);
         }
 
         return bytesRead;

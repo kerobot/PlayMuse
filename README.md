@@ -30,7 +30,7 @@ PlayMuse は、MP3 / FLAC / WAV / AAC / M4A といった主要な音楽ファイ
 - **CommunityToolkit.Mvvm** — MVVM 実装（`ObservableProperty` / `RelayCommand` などのソースジェネレーター）
 - **NAudio** — オーディオ入出力全般
   - `NAudio.Wave`（`WaveFileReader` / `Mp3FileReader` / `MediaFoundationReader` / `MediaFoundationResampler`）によるデコード
-  - `NAudio.CoreAudioApi`（`WasapiOut` / `MMDeviceEnumerator` / `MMDevice`）による WASAPI 出力とデバイス列挙
+  - `NAudio.CoreAudioApi`（`WasapiPlayer` / `MMDeviceEnumerator` / `MMDevice`）による WASAPI 出力とデバイス列挙
 - **BunLabs.NAudio.Flac** — FLAC のネイティブデコード（STREAMINFO のビット深度を保ったまま PCM を取得）
 - **Media Foundation** — AAC / M4A のデコードと、ビットパーフェクト不可時のリサンプリング
 - **NAudio.Dsp** — スペクトラムアナライザの FFT（高速フーリエ変換）演算
@@ -128,7 +128,7 @@ Windows の既定の音声パイプラインは、共有モードで動作する
 ## PlayMuse でのビットパーフェクト再生の実現方法
 
 1. **WASAPI 排他モードの利用**
-   `AudioPlaybackService` は `WasapiOut` を排他モード (`AudioClientShareMode.Exclusive`) で初期化することで、OS のオーディオエンジン（ミキサー）をバイパスし、アプリが直接デバイスの入力バッファへ PCM データを書き込めるようにします。
+   `AudioPlaybackService` は `WasapiPlayer`（`WasapiPlayerBuilder` で構築）を排他モード (`AudioClientShareMode.Exclusive`) で初期化することで、OS のオーディオエンジン（ミキサー）をバイパスし、アプリが直接デバイスの入力バッファへ PCM データを書き込めるようにします。
 
 2. **フォーマット変換を伴わないデコード**
    前述の `NativeAudioFileReaderFactory` により、ファイル固有のビット深度・サンプルレートを保持したまま `WaveStream` を取得します。
@@ -212,7 +212,7 @@ PlayMuse は、再生中の音声波形をリアルタイムに解析し、16 �
 ### 処理の流れ（バッファ → FFT → マグニチュード → デシベル → 表示レベル）
 
 1. **キャプチャ（バッファリング）**
-   `SpectrumTapProvider` が `AudioPlaybackService` の出力パイプライン（`WasapiOut.Init()` 直前）に透過的に挿入され、再生データをそのまま出力しつつ `ISpectrumAnalyzerService.PushSamples` へ渡します。`SpectrumAnalyzerService` は全チャンネルを平均してモノラル化した上で、リングバッファへ蓄積します。
+   `SpectrumTapProvider` が `AudioPlaybackService` の出力パイプライン（`WasapiPlayer.Init()` 直前）に透過的に挿入され、再生データをそのまま出力しつつ `ISpectrumAnalyzerService.PushSamples` へ渡します。`SpectrumAnalyzerService` は全チャンネルを平均してモノラル化した上で、リングバッファへ蓄積します。
 
 2. **FFT（高速フーリエ変換）**
    `GetBandLevels` が呼ばれるたびに、リングバッファから直近のサンプルを時系列順に切り出し、Hamming 窓を適用してから `NAudio.Dsp.FastFourierTransform` で FFT を実行します。窓関数はサンプルレートに応じて 2048〜16384 の可変長を用い、高いサンプルレートでも周波数分解能を維持します。
@@ -229,6 +229,34 @@ PlayMuse は、再生中の音声波形をリアルタイムに解析し、16 �
 6. **UI 表示**
    `MainViewModel.GetSpectrumLevels()` を経由して、`MainWindow` の `SPECTRUM ANALYZER` パネルが約 33ms 間隔のタイマーでレベルを取得し、16 列 × 10 行の LED 風グリッドとして描画します。段の境界をまたぐセルは不透明度を連続値に応じて調整することで、なめらかな表示を実現しています。
 
+## NAudio バージョンアップについて
+
+PlayMuse は NAudio 2.x 系から 3.3.0 へアップグレードしています。本セクションでは、その概要と対応手順を記録します。
+
+### 概要
+
+NAudio 3.x 系では、`IWaveProvider.Read` が `byte[]` ベースの旧シグネチャから `Span<byte>` ベースへ刷新されたほか、`IMMNotificationClient` の直接実装が内部化され、`WasapiOut` に代わる `WasapiPlayerBuilder` / `WasapiPlayer` が推奨 API として提供されるようになりました。また `WaveFormatExtensible` の `wValidBitsPerSample` / `SubFormat` が公開プロパティとして扱えるようになり、従来リフレクションで取得していた値を直接参照できるようになりました。
+
+### 対応手順
+
+1. **自前 `IWaveProvider` 実装の Span 対応**
+   `PcmVolumeProvider` / `Pack24In32WaveProvider` / `SpectrumTapProvider` の `Read(byte[], int, int)` を `Read(Span<byte>)` へ書き換え、内部のオフセット計算をすべて `Span` ベースへ置き換えました。
+
+2. **`WaveFormatExtensible` のリフレクション除去**
+   `AudioPlaybackService.CreatePacked24In32Format` などで非公開フィールドをリフレクションで書き換えていた箇所を、NAudio 3.x で公開された `WaveFormatExtensible` のプロパティ経由の実装へ置き換えました。
+
+3. **デバイス通知の移行**
+   `AudioDeviceService` で独自実装していた `IMMNotificationClient` を廃止し、`MMDeviceEnumerator.CreateNotificationClient()` が返す `MMDeviceNotificationClient` のイベント（`DeviceStateChanged` / `DeviceAdded` / `DeviceRemoved` / `DefaultDeviceChanged` / `PropertyValueChanged`）を購読する実装へ切り替えました。Dispose 時にはイベント購読解除・通知クライアント・列挙子の破棄を行います。
+
+4. **`WasapiOut` から `WasapiPlayer` への移行**
+   `AudioPlaybackService.InitializeOutputCore` を `WasapiPlayerBuilder.WithDevice(...).WithEventSync().WithLatency(...).WithExclusiveMode()` / `WithSharedMode()` を用いたビルダー形式の初期化へ変更しました。
+
+5. **`MMDevice.AudioClient` から `CreateAudioClient()` への移行**
+   フォーマット探索・互換性確認のために `AudioClient` を取得していた箇所を、都度 `using` で破棄可能な `MMDevice.CreateAudioClient()` 経由の実装へ変更しました。
+
+6. **ビルド・テストによる検証**
+   上記変更後、ソリューション全体のビルドで警告・エラーが出ないこと、および `PlayMuse.Tests` の全テストが成功することを確認しました。
+
 ## テスト
 
-`PlayMuse.Tests` では ViewModel やサービスの単体テストを xUnit で実装しています。ループ再生の伝播、プレイリストの読み込み結果、デバイス切り替え時の挙動など、コアロジックの振る舞いを検証しています。
+`PlayMuse.Tests` では ViewModel やサービスの単体テストを xUnit で実装しています。

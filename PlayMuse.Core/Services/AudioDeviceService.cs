@@ -1,21 +1,20 @@
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 using NAudio.CoreAudioApi;
-using NAudio.CoreAudioApi.Interfaces;
 using PlayMuse.Core.Models;
 
 namespace PlayMuse.Core.Services;
 
 /// <summary>
 /// <see cref="MMDeviceEnumerator"/> を用いてWASAPIのレンダーエンドポイント（出力デバイス）を列挙するサービス。
-/// あわせて<see cref="IMMNotificationClient"/>によりデバイスの追加/削除/切断や既定デバイスの変更を検知し、
-/// <see cref="DevicesChanged"/>イベントとして通知する。
+/// あわせて<see cref="MMDeviceNotificationClient"/>（<see cref="MMDeviceEnumerator.CreateNotificationClient"/>）
+/// のイベントによりデバイスの追加/削除/切断や既定デバイスの変更を検知し、<see cref="DevicesChanged"/>イベントとして通知する。
 /// </summary>
-public sealed class AudioDeviceService : IAudioDeviceService, IMMNotificationClient, IDisposable
+public sealed class AudioDeviceService : IAudioDeviceService, IDisposable
 {
     private readonly MMDeviceEnumerator notificationEnumerator = new();
     private readonly ILogger<AudioDeviceService> logger;
-    private readonly bool isNotificationRegistered;
+    private readonly MMDeviceNotificationClient? notificationClient;
 
     public AudioDeviceService(ILogger<AudioDeviceService>? logger = null)
     {
@@ -23,8 +22,12 @@ public sealed class AudioDeviceService : IAudioDeviceService, IMMNotificationCli
 
         try
         {
-            notificationEnumerator.RegisterEndpointNotificationCallback(this);
-            isNotificationRegistered = true;
+            notificationClient = notificationEnumerator.CreateNotificationClient();
+            notificationClient.DeviceStateChanged += OnDeviceStateChanged;
+            notificationClient.DeviceAdded += OnDeviceAdded;
+            notificationClient.DeviceRemoved += OnDeviceRemoved;
+            notificationClient.DefaultDeviceChanged += OnDefaultDeviceChanged;
+            notificationClient.PropertyValueChanged += OnPropertyValueChanged;
         }
         catch (COMException ex)
         {
@@ -90,47 +93,47 @@ public sealed class AudioDeviceService : IAudioDeviceService, IMMNotificationCli
         }
     }
 
-    void IMMNotificationClient.OnDeviceStateChanged(string deviceId, DeviceState newState)
+    private void OnDeviceStateChanged(object? sender, DeviceStateChangedEventArgs e)
     {
         if (logger.IsEnabled(LogLevel.Debug))
         {
-            logger.LogDebug("デバイスの状態が変化しました: {DeviceId} -> {NewState}", deviceId, newState);
+            logger.LogDebug("デバイスの状態が変化しました: {DeviceId} -> {NewState}", e.DeviceId, e.NewState);
         }
         RaiseDevicesChanged();
     }
 
-    void IMMNotificationClient.OnDeviceAdded(string deviceId)
+    private void OnDeviceAdded(object? sender, DeviceNotificationEventArgs e)
     {
         if (logger.IsEnabled(LogLevel.Debug))
         {
-            logger.LogDebug("デバイスが追加されました: {DeviceId}", deviceId);
+            logger.LogDebug("デバイスが追加されました: {DeviceId}", e.DeviceId);
         }
         RaiseDevicesChanged();
     }
 
-    void IMMNotificationClient.OnDeviceRemoved(string deviceId)
+    private void OnDeviceRemoved(object? sender, DeviceNotificationEventArgs e)
     {
         if (logger.IsEnabled(LogLevel.Debug))
         {
-            logger.LogDebug("デバイスが削除されました: {DeviceId}", deviceId);
+            logger.LogDebug("デバイスが削除されました: {DeviceId}", e.DeviceId);
         }
         RaiseDevicesChanged();
     }
 
-    void IMMNotificationClient.OnDefaultDeviceChanged(DataFlow flow, Role role, string defaultDeviceId)
+    private void OnDefaultDeviceChanged(object? sender, DefaultDeviceChangedEventArgs e)
     {
         // 再生(Render)側の既定デバイス変更のみを対象とする。
-        if (flow == DataFlow.Render)
+        if (e.Flow == DataFlow.Render)
         {
             if (logger.IsEnabled(LogLevel.Information))
             {
-                logger.LogInformation("既定出力デバイスが変更されました: {DeviceId}", defaultDeviceId);
+                logger.LogInformation("既定出力デバイスが変更されました: {DeviceId}", e.DeviceId);
             }
             RaiseDevicesChanged();
         }
     }
 
-    void IMMNotificationClient.OnPropertyValueChanged(string deviceId, PropertyKey key)
+    private void OnPropertyValueChanged(object? sender, DevicePropertyChangedEventArgs e)
     {
         // プロパティ変更（名称等）は一覧の再構築対象外。
     }
@@ -142,17 +145,14 @@ public sealed class AudioDeviceService : IAudioDeviceService, IMMNotificationCli
 
     public void Dispose()
     {
-        if (isNotificationRegistered)
+        if (notificationClient is not null)
         {
-            try
-            {
-                notificationEnumerator.UnregisterEndpointNotificationCallback(this);
-            }
-            catch (COMException ex)
-            {
-                // 破棄時の解除失敗は無視する。
-                logger.LogWarning(ex, "デバイス変更通知の解除に失敗しました。");
-            }
+            notificationClient.DeviceStateChanged -= OnDeviceStateChanged;
+            notificationClient.DeviceAdded -= OnDeviceAdded;
+            notificationClient.DeviceRemoved -= OnDeviceRemoved;
+            notificationClient.DefaultDeviceChanged -= OnDefaultDeviceChanged;
+            notificationClient.PropertyValueChanged -= OnPropertyValueChanged;
+            notificationClient.Dispose();
         }
 
         notificationEnumerator.Dispose();

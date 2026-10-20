@@ -1,4 +1,3 @@
-using System.Reflection;
 using Microsoft.Extensions.Logging;
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
@@ -8,7 +7,7 @@ using PlaybackState = PlayMuse.Core.Models.PlaybackState;
 namespace PlayMuse.Core.Services;
 
 /// <summary>
-/// NAudioの<see cref="AudioFileReader"/>（デコード）と<see cref="WasapiOut"/>（WASAPI出力）を
+/// NAudioの<see cref="AudioFileReader"/>（デコード）と<see cref="WasapiPlayer"/>（WASAPI出力）を
 /// 組み合わせて実装する再生サービス。
 /// </summary>
 public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger = null, ISpectrumAnalyzerService? spectrumAnalyzer = null, IChannelLevelMeterService? channelLevelMeter = null) : IAudioPlaybackService
@@ -41,7 +40,7 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
     private readonly ILogger<AudioPlaybackService> logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<AudioPlaybackService>.Instance;
     private WaveStream? reader;
     private PcmVolumeProvider? volumeProvider;
-    private WasapiOut? output;
+    private WasapiPlayer? output;
     private MMDevice? currentMMDevice;
     private MediaFoundationResampler? resampler;
     private PlaybackState state = PlaybackState.Stopped;
@@ -141,7 +140,7 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
     /// 排他モードでリサンプリングが行われておらず（デコーダー出力がそのまま、
     /// またはロスレス再パッキングのみでデバイスへ渡せている）、かつ音量が1.0（<see cref="PcmVolumeProvider"/>が無加工でパススルーする状態）
     /// である場合にのみ true となる。
-    /// <see cref="InitializeOutputCore"/> 内で <see cref="WasapiOut.Init(IWaveProvider)"/> が
+    /// <see cref="InitializeOutputCore"/> 内で <see cref="WasapiPlayer.Init(IWaveProvider)"/> が
     /// 成功した後に確定する値であるため、出力初期化前の判定候補よりも厳密。
     /// </summary>
     public bool IsBitPerfect =>
@@ -388,7 +387,7 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
             // WASAPI排他モードは、16bit/1〜2chの標準WAVEFORMATEX以外（24bit等）では
             // WAVEFORMATEXTENSIBLEでの指定を要求するデバイスが多いため、
             // ファイルそのままの形式とExtensible相当の形式の両方を試す。
-            // この時点では音量・スペクトラムタップ・実際のWasapiOut.Init()成功可否はまだ未確認であり、
+            // この時点では音量・スペクトラムタップ・実際のWasapiPlayer.Init()成功可否はまだ未確認であり、
             // directOutputFormat は「デバイスへ無変換またはロスレス再パッキングで渡せる候補形式がある」ことのみを表す。
             // 最終的なビットパーフェクト状態は IsBitPerfect プロパティで判定する。
             var directOutputFormat = ResolveDirectOutputFormat(currentMMDevice!, fileFormat);
@@ -455,7 +454,8 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
                 else
                 {
                     // 対応フォーマットが見つからない場合はMixFormat（デバイスのネイティブ共有フォーマット）へリサンプリング
-                    var mixFormat = currentMMDevice!.AudioClient.MixFormat;
+                    using var audioClient = currentMMDevice!.CreateAudioClient();
+                    var mixFormat = audioClient.MixFormat;
                     if (logger.IsEnabled(LogLevel.Debug))
                     {
                         logger.LogDebug(
@@ -474,17 +474,33 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
         else
         {
             // 共有モードの場合、Windowsが自動的にミックスするため出力フォーマットは不明
-            OutputFormat = currentMMDevice?.AudioClient.MixFormat;
+            if (currentMMDevice is not null)
+            {
+                using var audioClient = currentMMDevice.CreateAudioClient();
+                OutputFormat = audioClient.MixFormat;
+            }
+            else
+            {
+                OutputFormat = null;
+            }
             OutputFormatLabel = OutputFormat is not null ? DescribeFormat(OutputFormat) : null;
         }
 
         if (spectrumAnalyzer is not null && channelLevelMeter is not null)
         {
-            // リサンプル後・WasapiOut初期化前の位置で透過的にキャプチャする。
+            // リサンプル後・WasapiPlayer初期化前の位置で透過的にキャプチャする。
             waveProvider = new SpectrumTapProvider(waveProvider, spectrumAnalyzer, channelLevelMeter);
         }
 
-        var newOutput = new WasapiOut(currentMMDevice, shareModeNative, true, LatencyMilliseconds);
+        var builder = new WasapiPlayerBuilder()
+            .WithDevice(currentMMDevice!)
+            .WithEventSync()
+            .WithLatency(LatencyMilliseconds);
+        builder = shareModeNative == AudioClientShareMode.Exclusive
+            ? builder.WithExclusiveMode()
+            : builder.WithSharedMode();
+
+        var newOutput = builder.Build();
         newOutput.PlaybackStopped += OnPlaybackStopped;
         newOutput.Init(waveProvider);
         output = newOutput;
@@ -492,7 +508,7 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
             ? AudioShareMode.Exclusive
             : AudioShareMode.Shared;
 
-        // WasapiOut.Init() が実際に成功した後で、デコーダー出力（またはロスレス再パッキング）が
+        // WasapiPlayer.Init() が実際に成功した後で、デコーダー出力（またはロスレス再パッキング）が
         // そのままデバイスへ渡せたことを確定する。音量（desiredVolume）の考慮は呼び出し元の
         // IsBitPerfect プロパティ側で行う。
         decoderOutputIsTrusted = ActualShareMode == AudioShareMode.Exclusive && canOutputWithoutSampleConversion;
@@ -528,7 +544,7 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
     /// </summary>
     private static int GetValidBits(WaveFormat format) =>
         format is WaveFormatExtensible extensible
-            ? (short)WaveFormatExtensibleValidBitsField.GetValue(extensible)!
+            ? extensible.ValidBitsPerSample
             : format.BitsPerSample;
 
     /// <summary>
@@ -621,12 +637,12 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
                 output.Stop();
                 if (logger.IsEnabled(LogLevel.Debug))
                 {
-                    logger.LogDebug("TeardownOutput: WasapiOutを停止しました。");
+                    logger.LogDebug("TeardownOutput: WasapiPlayerを停止しました。");
                 }
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "TeardownOutput: WasapiOut停止時に例外が発生しましたが、破棄処理を続行します。");
+                logger.LogWarning(ex, "TeardownOutput: WasapiPlayer停止時に例外が発生しましたが、破棄処理を続行します。");
             }
 
             output.Dispose();
@@ -770,13 +786,14 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
     {
         try
         {
-            if (device.AudioClient.IsFormatSupported(AudioClientShareMode.Exclusive, format))
+            using var audioClient = device.CreateAudioClient();
+            if (audioClient.IsFormatSupported(AudioClientShareMode.Exclusive, format))
             {
                 if (logger.IsEnabled(LogLevel.Debug))
                 {
                     if (format is WaveFormatExtensible ext)
                     {
-                        var validBits = (short?)WaveFormatExtensibleValidBitsField.GetValue(ext);
+                        var validBits = ext.ValidBitsPerSample;
                         logger.LogDebug("  対応: {SampleRate}Hz {BitsPerSample}bit {Channels}ch ({Label}, validBits={ValidBits})",
                             sampleRate, bitsPerSample, channels, label, validBits);
                     }
@@ -898,8 +915,8 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
             var packed24In32 = CreatePacked24In32Format(fileFormat.SampleRate, fileFormat.Channels);
             if (logger.IsEnabled(LogLevel.Debug))
             {
-                var validBits = (short?)WaveFormatExtensibleValidBitsField.GetValue(packed24In32);
-                var subFormat = (Guid?)WaveFormatExtensibleSubFormatField.GetValue(packed24In32);
+                var validBits = packed24In32.ValidBitsPerSample;
+                var subFormat = packed24In32.SubFormat;
                 logger.LogDebug("  24-in-32フォーマットを試行: {Format} (validBits={ValidBits}, subFormat={SubFormat})",
                     packed24In32, validBits, subFormat);
             }
@@ -914,8 +931,8 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
             var pcm32 = CreateExtensibleFormat(fileFormat.SampleRate, 32, fileFormat.Channels, isFloatSource: false);
             if (logger.IsEnabled(LogLevel.Debug))
             {
-                var validBits = (short?)WaveFormatExtensibleValidBitsField.GetValue(pcm32);
-                var subFormat = (Guid?)WaveFormatExtensibleSubFormatField.GetValue(pcm32);
+                var validBits = pcm32.ValidBitsPerSample;
+                var subFormat = pcm32.SubFormat;
                 logger.LogDebug("  32bit PCMフォーマットを試行: {Format} (validBits={ValidBits}, subFormat={SubFormat})",
                     pcm32, validBits, subFormat);
             }
@@ -937,25 +954,6 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
     /// IEEE Float フォーマットの SubFormat GUID: {00000003-0000-0010-8000-00aa00389b71}
     /// </summary>
     private static readonly Guid IeeeFloatSubFormatGuid = new("00000003-0000-0010-8000-00aa00389b71");
-
-    /// <summary>
-    /// <see cref="WaveFormatExtensible"></see> の非公privateフィールド `wValidBitsPerSample`。
-    /// NAudioの公開コンストラクタ(rate, bits, channels)はコンテナビット数と有効ビット数を
-    /// 必ず同一値にするため、、24-in-32」のように両者が異なるパッキング形式を作成するには
-    /// このフィールドをリフレクションで直接上書きする必要がある。
-    /// </summary>
-    private static readonly FieldInfo WaveFormatExtensibleValidBitsField =
-        typeof(WaveFormatExtensible).GetField("wValidBitsPerSample", BindingFlags.NonPublic | BindingFlags.Instance)
-        ?? throw new MissingFieldException(nameof(WaveFormatExtensible), "wValidBitsPerSample");
-
-    /// <summary>
-    /// <see cref="WaveFormatExtensible"></see> の非公privateフィールド `subFormat`。
-    /// bits=32で構築するとNAudioは自動的にIEEE FloatのSubFormatを設定するため、
-    /// 24-in-32(PCM)の場合は PCM の SubFormat へ上書きする必要がある。
-    /// </summary>
-    private static readonly FieldInfo WaveFormatExtensibleSubFormatField =
-        typeof(WaveFormatExtensible).GetField("subFormat", BindingFlags.NonPublic | BindingFlags.Instance)
-        ?? throw new MissingFieldException(nameof(WaveFormatExtensible), "subFormat");
 
     /// <summary>
     /// 24bit有効データを32bitコンテナに左詰め格納する「24-in-32」PCMフォーマットを生成する。
@@ -981,15 +979,11 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
     /// <param name="isFloatSource">IEEE Float として扱うか（false ならPCM）。</param>
     /// <param name="validBits">実効ビット数。未指定の場合は<paramref name="bitsPerSample"/>と同じ値を使う。</param>
     private static WaveFormatExtensible CreateExtensibleFormat(int sampleRate, int bitsPerSample, int channels,
-        bool isFloatSource, int? validBits = null)
-    {
-        var format = new WaveFormatExtensible(sampleRate, bitsPerSample, channels);
-
-        WaveFormatExtensibleSubFormatField.SetValue(format, isFloatSource ? IeeeFloatSubFormatGuid : PcmSubFormatGuid);
-        WaveFormatExtensibleValidBitsField.SetValue(format, (short)(validBits ?? bitsPerSample));
-
-        return format;
-    }
+        bool isFloatSource, int? validBits = null) =>
+        new(sampleRate, bitsPerSample, channels,
+            isFloatSource ? IeeeFloatSubFormatGuid : PcmSubFormatGuid,
+            validBits ?? bitsPerSample,
+            channelMask: 0);
 
     /// <summary>
     /// 出力フォーマットをUI表示向けの詳細ラベル（例: "PCM", "Extensible/PCM", "Extensible/PCM(24-in-32)"）に変換する。
@@ -1003,7 +997,7 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
             var isFloat = extensible.SubFormat == IeeeFloatSubFormatGuid;
             var label = isFloat ? "Extensible/Float" : "Extensible/PCM";
 
-            var validBits = (short)WaveFormatExtensibleValidBitsField.GetValue(extensible)!;
+            var validBits = extensible.ValidBitsPerSample;
             if (validBits != format.BitsPerSample)
             {
                 label += $"({validBits}-in-{format.BitsPerSample})";
@@ -1023,13 +1017,14 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
     {
         try
         {
-            var result = device.AudioClient.IsFormatSupported(AudioClientShareMode.Exclusive, format);
+            using var audioClient = device.CreateAudioClient();
+            var result = audioClient.IsFormatSupported(AudioClientShareMode.Exclusive, format);
             if (logger.IsEnabled(LogLevel.Trace))
             {
                 if (format is WaveFormatExtensible ext)
                 {
-                    var validBits = (short?)WaveFormatExtensibleValidBitsField.GetValue(ext);
-                    var subFormat = (Guid?)WaveFormatExtensibleSubFormatField.GetValue(ext);
+                    var validBits = ext.ValidBitsPerSample;
+                    var subFormat = ext.SubFormat;
                     logger.LogTrace("IsFormatSupported: {Result} for {Format} (validBits={ValidBits}, subFormat={SubFormat})",
                         result, format, validBits, subFormat);
                 }

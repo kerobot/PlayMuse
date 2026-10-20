@@ -17,9 +17,9 @@ internal sealed class PcmVolumeProvider(IWaveProvider source) : IWaveProvider
     /// <summary>0.0〜1.0 の音量。既定値は 1.0（ビットパーフェクト）。</summary>
     public float Volume { get; set; } = 1.0f;
 
-    public int Read(byte[] buffer, int offset, int count)
+    public int Read(Span<byte> buffer)
     {
-        var bytesRead = source.Read(buffer, offset, count);
+        var bytesRead = source.Read(buffer);
 
         if (bytesRead <= 0 || Volume >= 1.0f)
         {
@@ -29,11 +29,11 @@ internal sealed class PcmVolumeProvider(IWaveProvider source) : IWaveProvider
             return bytesRead;
         }
 
-        ApplyVolume(buffer, offset, bytesRead);
+        ApplyVolume(buffer[..bytesRead]);
         return bytesRead;
     }
 
-    private void ApplyVolume(byte[] buffer, int offset, int count)
+    private void ApplyVolume(Span<byte> buffer)
     {
         var format = WaveFormat;
         var isFloat = format.Encoding == WaveFormatEncoding.IeeeFloat ||
@@ -41,67 +41,67 @@ internal sealed class PcmVolumeProvider(IWaveProvider source) : IWaveProvider
 
         if (isFloat)
         {
-            ScaleFloat(buffer, offset, count);
+            ScaleFloat(buffer);
             return;
         }
 
         switch (format.BitsPerSample)
         {
             case 8:
-                ScaleUInt8(buffer, offset, count);
+                ScaleUInt8(buffer);
                 break;
             case 16:
-                ScaleInt16(buffer, offset, count);
+                ScaleInt16(buffer);
                 break;
             case 24:
-                ScaleInt24(buffer, offset, count);
+                ScaleInt24(buffer);
                 break;
             case 32:
-                ScaleInt32(buffer, offset, count);
+                ScaleInt32(buffer);
                 break;
         }
     }
 
-    private void ScaleFloat(byte[] buffer, int offset, int count)
+    private void ScaleFloat(Span<byte> buffer)
     {
-        var span = MemoryMarshal.Cast<byte, float>(buffer.AsSpan(offset, count - (count % 4)));
+        var span = MemoryMarshal.Cast<byte, float>(buffer[..(buffer.Length - (buffer.Length % 4))]);
         for (var i = 0; i < span.Length; i++)
         {
             span[i] *= Volume;
         }
     }
 
-    private void ScaleInt16(byte[] buffer, int offset, int count)
+    private void ScaleInt16(Span<byte> buffer)
     {
-        var span = MemoryMarshal.Cast<byte, short>(buffer.AsSpan(offset, count - (count % 2)));
+        var span = MemoryMarshal.Cast<byte, short>(buffer[..(buffer.Length - (buffer.Length % 2))]);
         for (var i = 0; i < span.Length; i++)
         {
             span[i] = (short)Math.Clamp(span[i] * (double)Volume, short.MinValue, short.MaxValue);
         }
     }
 
-    private void ScaleInt32(byte[] buffer, int offset, int count)
+    private void ScaleInt32(Span<byte> buffer)
     {
-        var span = MemoryMarshal.Cast<byte, int>(buffer.AsSpan(offset, count - (count % 4)));
+        var span = MemoryMarshal.Cast<byte, int>(buffer[..(buffer.Length - (buffer.Length % 4))]);
         for (var i = 0; i < span.Length; i++)
         {
             span[i] = (int)Math.Clamp(span[i] * (double)Volume, int.MinValue, int.MaxValue);
         }
     }
 
-    private void ScaleUInt8(byte[] buffer, int offset, int count)
+    private void ScaleUInt8(Span<byte> buffer)
     {
-        for (var i = offset; i < offset + count; i++)
+        for (var i = 0; i < buffer.Length; i++)
         {
             var centered = buffer[i] - 128;
             buffer[i] = (byte)Math.Clamp((centered * Volume) + 128, 0, 255);
         }
     }
 
-    private void ScaleInt24(byte[] buffer, int offset, int count)
+    private void ScaleInt24(Span<byte> buffer)
     {
-        var end = offset + count - (count % 3);
-        for (var i = offset; i < end; i += 3)
+        var end = buffer.Length - (buffer.Length % 3);
+        for (var i = 0; i < end; i += 3)
         {
             var sample = buffer[i] | (buffer[i + 1] << 8) | (buffer[i + 2] << 16);
             if ((sample & 0x800000) != 0)
