@@ -49,6 +49,7 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
     private bool decoderOutputIsTrusted;
     private Track? pendingTrack;
     private string? loadedTrackFilePath;
+    private ExclusiveModeEndOfStreamWorkaroundProvider? exclusiveModeEndOfStreamWorkaround;
 
     public PlaybackState State
     {
@@ -492,6 +493,17 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
             waveProvider = new SpectrumTapProvider(waveProvider, spectrumAnalyzer, channelLevelMeter);
         }
 
+        if (shareModeNative == AudioClientShareMode.Exclusive)
+        {
+            // NAudio 3.3.0 の WasapiPlayer は排他・イベント同期モードで曲が終端に達すると
+            // AUDCLNT_E_BUFFER_SIZE_ERROR を発生させてしまうため、専用ラッパーで回避する。
+            // これは NAudio 側の不具合に対する暫定対応であり、NAudio側で修正された場合は不要になる想定。
+            var workaround = new ExclusiveModeEndOfStreamWorkaroundProvider(waveProvider);
+            workaround.NaturalEndReached += OnExclusiveModeNaturalEndReached;
+            exclusiveModeEndOfStreamWorkaround = workaround;
+            waveProvider = workaround;
+        }
+
         var builder = new WasapiPlayerBuilder()
             .WithDevice(currentMMDevice!)
             .WithEventSync()
@@ -628,6 +640,12 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
         // 排他モード判定用に現在のActualShareModeをローカル変数に退避
         var wasExclusiveMode = ActualShareMode == AudioShareMode.Exclusive;
 
+        if (exclusiveModeEndOfStreamWorkaround is not null)
+        {
+            exclusiveModeEndOfStreamWorkaround.NaturalEndReached -= OnExclusiveModeNaturalEndReached;
+            exclusiveModeEndOfStreamWorkaround = null;
+        }
+
         if (output is not null)
         {
             output.PlaybackStopped -= OnPlaybackStopped;
@@ -685,6 +703,44 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
         {
             logger.LogDebug("TeardownOutput: 出力解放が完了しました。");
         }
+    }
+
+    /// <summary>
+    /// 排他・イベント同期モードで曲が終端に達した際に <see cref="ExclusiveModeEndOfStreamWorkaroundProvider"/> から
+    /// 通知される。NAudio 3.3.0 の WasapiPlayer は終端検知時に <c>AUDCLNT_E_BUFFER_SIZE_ERROR</c> を発生させてしまうため
+    /// ラッパー側では 0 を返さず無音で再生を続けさせているが、放置すると無音が鳴り続けてしまう。
+    /// そのため最後のバッファが再生デバイスに届く程度の猶予をおいてから明示的に <see cref="WasapiPlayer.Stop"/> を呼び出し、
+    /// 通常の曲終端と同じ経路（<see cref="OnPlaybackStopped"/> で例外なし）で停止させる。
+    /// </summary>
+    /// <remarks>
+    /// これは NAudio 3.3.0 側の不具合（排他・イベント同期モードでの終端処理）に対する暫定対応であり、
+    /// NAudio 側の修正状況に応じて将来的に不要になる可能性がある。
+    /// </remarks>
+    private void OnExclusiveModeNaturalEndReached(object? sender, EventArgs e)
+    {
+        var capturedOutput = output;
+        if (capturedOutput is null)
+        {
+            return;
+        }
+
+        _ = Task.Delay(LatencyMilliseconds * 2).ContinueWith(_ =>
+        {
+            // トラック切り替えなどで output が既に差し替えられている場合は何もしない。
+            if (!ReferenceEquals(output, capturedOutput))
+            {
+                return;
+            }
+
+            try
+            {
+                capturedOutput.Stop();
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "OnExclusiveModeNaturalEndReached: WasapiPlayer停止時に例外が発生しましたが、無視します。");
+            }
+        }, TaskScheduler.Default);
     }
 
     private void OnPlaybackStopped(object? sender, StoppedEventArgs e)

@@ -257,6 +257,14 @@ NAudio 3.x 系では、`IWaveProvider.Read` が `byte[]` ベースの旧シグ�
 6. **ビルド・テストによる検証**
    上記変更後、ソリューション全体のビルドで警告・エラーが出ないこと、および `PlayMuse.Tests` の全テストが成功することを確認しました。
 
+### 排他モードでの曲終端エラーに対する暫定対応
+
+NAudio 3.3.0 へのアップグレード後、WASAPI 排他モード（`WithExclusiveMode()` + `WithEventSync()`）で曲が最後まで再生し終わると `NAudio.CoreAudioApi.CoreAudioException: A buffer size error occurred.`（`AUDCLNT_E_BUFFER_SIZE_ERROR`）が発生し、次の曲へ自動的に進まなくなる不具合が判明しました。
+
+- **原因**: NAudio 3.3.0 の `WasapiPlayer.FillBuffer` は、デコード元の `IWaveProvider.Read` が `0`（曲の終端）を返すと、無条件に `IAudioRenderClient.ReleaseBuffer` を `0` フレームで呼び出します。しかし WASAPI の排他・イベント同期モードでは `ReleaseBuffer` に `0` フレームを渡すことが許容されておらず、`AUDCLNT_E_BUFFER_SIZE_ERROR` が返ってしまいます（共有モードでは発生しません）。NAudio 側の回帰的な不具合と見られます。
+- **対応内容**: `ExclusiveModeEndOfStreamWorkaroundProvider` を追加し、排他モード時のみ最終段の `IWaveProvider` をラップしました。ソースの `Read` が `0` を返した場合でも `0` を返さず、無音でフルバッファを埋めて返すことで `ReleaseBuffer(0, ...)` の呼び出しを回避します。曲の自然な終了は専用イベント（`NaturalEndReached`）で通知し、`AudioPlaybackService` 側で少し待機してから明示的に `WasapiPlayer.Stop()` を呼び出すことで、通常の曲終端と同じ経路で次の曲へ進めるようにしています。
+- **位置づけ**: これはアプリケーション層での暫定対応（ワークアラウンド）であり、NAudio 側で該当不具合が修正された場合は不要になる可能性があります。今後 NAudio のバージョンを上げる際は、本ワークアラウンドの要否を見直してください。
+
 ## テスト
 
 `PlayMuse.Tests` では ViewModel やサービスの単体テストを xUnit で実装しています。

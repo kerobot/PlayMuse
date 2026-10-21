@@ -617,4 +617,46 @@ NAudio 3.x 系では、ビットパーフェクト再生に関わる部分にも
 
    上記の変更をひと通り終えたあと、ソリューション全体のビルドが警告なく通ることと、既存の単体テストがすべて成功することを確認しました。
 
+### 追記：排他モードでの曲終端エラーとその暫定対応
+
+NAudio 3.3.0 へのアップグレード後、しばらく運用してから WASAPI 排他モード（`WithExclusiveMode()` + `WithEventSync()`）で再生していると、曲が最後まで再生し終わったタイミングで `NAudio.CoreAudioApi.CoreAudioException: A buffer size error occurred.`（`AUDCLNT_E_BUFFER_SIZE_ERROR`）が発生し、次の曲に自動で進まなくなる不具合が見つかりました。共有モードでは発生せず、排他モード特有の現象でした。
+
+調査の結果、原因は NAudio 3.3.0 の `WasapiPlayer.FillBuffer` 内部にありました。デコード元の `IWaveProvider.Read` が `0`（曲の終端）を返すと、`FillBuffer` は無条件に `IAudioRenderClient.ReleaseBuffer` を `0` フレームで呼び出します。ところが WASAPI の排他・イベント同期モードでは `ReleaseBuffer` に `0` フレームを渡すことが許容されておらず、`AUDCLNT_E_BUFFER_SIZE_ERROR` が返されてしまいます。`WasapiPlayer` / `WasapiPlayerBuilder` はシールド・内部型が多く、アプリ側から直接パッチを当てることはできないため、`IWaveProvider` パイプライン側で回避する方針にしました。
+
+```csharp
+internal sealed class ExclusiveModeEndOfStreamWorkaroundProvider(IWaveProvider source) : IWaveProvider
+{
+    private bool naturalEndRaised;
+
+    public WaveFormat WaveFormat => source.WaveFormat;
+
+    public event EventHandler? NaturalEndReached;
+
+    public int Read(Span<byte> buffer)
+    {
+        var bytesRead = source.Read(buffer);
+
+        if (bytesRead > 0)
+        {
+            return bytesRead;
+        }
+
+        // ソース終端: AUDCLNT_E_BUFFER_SIZE_ERROR を避けるため 0 を返さず、無音でフルバッファを埋めて返す。
+        buffer.Clear();
+
+        if (!naturalEndRaised)
+        {
+            naturalEndRaised = true;
+            NaturalEndReached?.Invoke(this, EventArgs.Empty);
+        }
+
+        return buffer.Length;
+    }
+}
+```
+
+このラッパーを排他モード時のみ最終段の `IWaveProvider` に挟み、`Read` が `0` を返す代わりに無音でバッファを埋めて返すことで `ReleaseBuffer(0, ...)` の呼び出し自体を発生させないようにしています。ただしこのままでは曲が終わっても無音が鳴り続けてしまうため、`NaturalEndReached` イベントで曲の自然な終了を通知し、`AudioPlaybackService` 側でレイテンシ分程度待機してから明示的に `WasapiPlayer.Stop()` を呼び出すことで、通常の曲終端と同じ経路（`PlaybackStopped` が例外なしで発火する経路）で次の曲へ進むようにしました。
+
+なお、これはあくまで NAudio 3.3.0 側の不具合に対するアプリケーション層での暫定対応（ワークアラウンド）です。NAudio 側で `WasapiPlayer.FillBuffer` の排他・イベント同期モード時の終端処理が修正されれば、このワークアラウンドは不要になる可能性が高く、今後 NAudio のバージョンを上げる際には改めて要否を確認するつもりです。
+
 ビットパーフェクト再生のロジック自体（フォーマット比較・24-in-32 パッキング・リサンプリングのフォールバックなど）には手を入れておらず、今回はあくまで NAudio のバージョン追従が目的です。ライブラリのメジャーバージョンアップに追従する際は、こうした地味な書き換えが地味に効いてくるなとあらためて感じました。
