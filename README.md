@@ -265,6 +265,14 @@ NAudio 3.3.0 へのアップグレード後、WASAPI 排他モード（`WithExcl
 - **対応内容**: `ExclusiveModeEndOfStreamWorkaroundProvider` を追加し、排他モード時のみ最終段の `IWaveProvider` をラップしました。ソースの `Read` が `0` を返した場合でも `0` を返さず、無音でフルバッファを埋めて返すことで `ReleaseBuffer(0, ...)` の呼び出しを回避します。曲の自然な終了は専用イベント（`NaturalEndReached`）で通知し、`AudioPlaybackService` 側で少し待機してから明示的に `WasapiPlayer.Stop()` を呼び出すことで、通常の曲終端と同じ経路で次の曲へ進めるようにしています。
 - **位置づけ**: これはアプリケーション層での暫定対応（ワークアラウンド）であり、NAudio 側で該当不具合が修正された場合は不要になる可能性があります。今後 NAudio のバージョンを上げる際は、本ワークアラウンドの要否を見直してください。
 
+### チャンネルマスク未指定による 24bit 排他直接出力の回帰バグ
+
+NAudio 3.3.0 へのアップグレード後、しばらく運用してから「WASAPI 排他モードで 24bit 音源を再生しても、デバイスへは 16bit に変換されて送られてしまう」不具合が判明しました。サンプルレートはファイルと一致しているため、ビット深度の変換のみが意図せず発生していました。
+
+- **原因**: `AudioPlaybackService.CreateExtensibleFormat` が直接出力候補の `WaveFormatExtensible` を生成する際に `channelMask: 0`（未指定）を渡していました。一方、デバイス対応フォーマット一覧のチェック側は NAudio の `WaveFormatExtensible(rate, bits, channels)` 既定コンストラクタを使っており、こちらは `channelMask` 省略時に `(1 << channels) - 1` を自動計算して設定します。そのため、同じ「24bit 2ch」フォーマットでもチャンネルマスクが異なる `WAVEFORMATEXTENSIBLE` 構造体を比較することになり、デバイス対応一覧には対応と表示されるのに直接出力候補だけが拒否され、16bit へのリサンプリングにフォールバックしていました。
+- **経緯**: NAudio 2.x 時代は非公開フィールドへのリフレクションで `SubFormat` / `ValidBitsPerSample` のみを後から上書きする実装になっており、`WaveFormatExtensible` 本体の生成自体は一覧チェック側と同じ既定コンストラクタを使っていたため、チャンネルマスクは自動計算された正しい値のままでした。NAudio 3.3.0 で公開コンストラクタ経由の実装に置き換えた際、この自動計算ロジックの移植を見落としたことが回帰の原因でした。
+- **対応内容**: 一覧チェック側と同じ規則（`(1 << channels) - 1`）でチャンネルマスクを計算する `DefaultChannelMask` ヘルパーを追加し、`CreateExtensibleFormat` で明示的に指定するよう修正しました。
+
 ## テスト
 
 `PlayMuse.Tests` では ViewModel やサービスの単体テストを xUnit で実装しています。

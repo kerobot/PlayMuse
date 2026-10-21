@@ -351,6 +351,11 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
         catch (Exception ex) when (requestedShareMode == AudioClientShareMode.Exclusive)
         {
             // 排他モードでの初期化に失敗した場合、共有モードへフォールバックして再試行する。
+            // この分岐に入ると、デバイスのサンプルレートは音源に合わせて変更されず、
+            // 共有モードの既定レートに固定されたまま再生される（非ビットパーフェクトの主因候補）。
+            logger.LogWarning(ex,
+                "[InitializeOutput] 排他モード初期化に失敗したため共有モードへフォールバックします。HResult={HResult}",
+                (ex as System.Runtime.InteropServices.COMException)?.HResult);
             RaiseError(BuildExclusiveModeFailureMessage(ex), ex);
             InitializeOutputCore(AudioClientShareMode.Shared);
         }
@@ -431,20 +436,22 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
             else
             {
                 // 無変換出力不可: デバイスが対応する最も近しいフォーマットを選択してリサンプリング
-                logger.LogDebug("[InitializeOutputCore] 無変換出力不可: デバイス対応フォーマットを探索");
+                logger.LogWarning(
+                    "[InitializeOutputCore] 無変換出力不可（ResolveDirectOutputFormatが候補なし）: ファイル={SampleRate}Hz {BitsPerSample}bit {Channels}ch {Encoding}。デバイス対応フォーマットを探索します。",
+                    fileFormat.SampleRate, fileFormat.BitsPerSample, fileFormat.Channels, fileFormat.Encoding);
 
                 resampler?.Dispose();
                 var bestDeviceFormat = FindBestSupportedFormat(currentMMDevice!, fileFormat);
 
                 if (bestDeviceFormat is not null)
                 {
-                    if (logger.IsEnabled(LogLevel.Debug))
-                    {
-                        logger.LogDebug(
-                            "[InitializeOutputCore] リサンプリング: {SourceSampleRate}Hz {SourceBitsPerSample}bit {SourceEncoding} -> {TargetSampleRate}Hz {TargetBitsPerSample}bit {TargetEncoding}",
-                            fileFormat.SampleRate, fileFormat.BitsPerSample, fileFormat.Encoding,
-                            bestDeviceFormat.SampleRate, bestDeviceFormat.BitsPerSample, bestDeviceFormat.Encoding);
-                    }
+                    // FindBestSupportedFormatが見つけたフォーマットのサンプルレートがファイルと異なる場合、
+                    // 排他モードであってもデバイスのサンプルレートは音源に追従しない（リサンプリングが発生する）。
+                    var rateMismatch = bestDeviceFormat.SampleRate != fileFormat.SampleRate;
+                    logger.Log(rateMismatch ? LogLevel.Warning : LogLevel.Information,
+                        "[InitializeOutputCore] リサンプリング確定: {SourceSampleRate}Hz {SourceBitsPerSample}bit {SourceEncoding} -> {TargetSampleRate}Hz {TargetBitsPerSample}bit {TargetEncoding} (SampleRateMismatch={RateMismatch})",
+                        fileFormat.SampleRate, fileFormat.BitsPerSample, fileFormat.Encoding,
+                        bestDeviceFormat.SampleRate, bestDeviceFormat.BitsPerSample, bestDeviceFormat.Encoding, rateMismatch);
 
                     resampler = new MediaFoundationResampler(volumeProvider, bestDeviceFormat);
                     waveProvider = resampler;
@@ -454,15 +461,14 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
                 }
                 else
                 {
-                    // 対応フォーマットが見つからない場合はMixFormat（デバイスのネイティブ共有フォーマット）へリサンプリング
+                    // 対応フォーマットが見つからない場合はMixFormat（デバイスのネイティブ共有フォーマット）へリサンプリング。
+                    // MixFormatのサンプルレートは音源とは無関係な固定値であるため、ここに到達すると
+                    // 排他モードでもデバイスのレートが音源に追従しない（非ビットパーフェクトの主因候補）。
                     using var audioClient = currentMMDevice!.CreateAudioClient();
                     var mixFormat = audioClient.MixFormat;
-                    if (logger.IsEnabled(LogLevel.Debug))
-                    {
-                        logger.LogDebug(
-                            "[InitializeOutputCore] 対応フォーマットなし: MixFormatへリサンプリング {SourceSampleRate}Hz -> {TargetSampleRate}Hz",
-                            fileFormat.SampleRate, mixFormat.SampleRate);
-                    }
+                    logger.LogWarning(
+                        "[InitializeOutputCore] 対応フォーマットなし: MixFormat(共有エンジン既定フォーマット)へリサンプリング {SourceSampleRate}Hz {SourceBitsPerSample}bit -> {TargetSampleRate}Hz {TargetBitsPerSample}bit。デバイスのサンプルレートは音源に追従しません。",
+                        fileFormat.SampleRate, fileFormat.BitsPerSample, mixFormat.SampleRate, mixFormat.BitsPerSample);
 
                     resampler = new MediaFoundationResampler(volumeProvider, mixFormat);
                     waveProvider = resampler;
@@ -524,6 +530,19 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
         // そのままデバイスへ渡せたことを確定する。音量（desiredVolume）の考慮は呼び出し元の
         // IsBitPerfect プロパティ側で行う。
         decoderOutputIsTrusted = ActualShareMode == AudioShareMode.Exclusive && canOutputWithoutSampleConversion;
+
+        // WasapiPlayer.Init() 成功直後に、NAudio が実際にデバイスへ要求した最終フォーマット
+        // (newOutput.OutputWaveFormat) をソース/アプリ側判定(OutputFormat)と突き合わせてログ出力する。
+        // 両者のSampleRateが一致しない、またはActualShareModeがExclusiveでない場合は
+        // デバイス側のサンプルレートが音源に追従していないことを意味する。
+        var negotiatedFormat = newOutput.OutputWaveFormat;
+        var sourceRate = reader?.WaveFormat.SampleRate;
+        var isBitPerfectRate = negotiatedFormat is not null && sourceRate is not null && negotiatedFormat.SampleRate == sourceRate;
+        logger.Log(
+            ActualShareMode == AudioShareMode.Exclusive && isBitPerfectRate ? LogLevel.Information : LogLevel.Warning,
+            "[InitializeOutputCore] 初期化完了: ActualShareMode={ActualShareMode}, Source={SourceRate}Hz, App側OutputFormat={AppOutputRate}Hz {AppOutputBits}bit, NAudio実ネゴシエート={NegotiatedRate}Hz {NegotiatedBits}bit, IsResampling={IsResampling}, DecoderOutputIsTrusted={DecoderOutputIsTrusted}, SampleRateMatchesSource={IsBitPerfectRate}",
+            ActualShareMode, sourceRate, OutputFormat?.SampleRate, OutputFormat?.BitsPerSample,
+            negotiatedFormat?.SampleRate, negotiatedFormat?.BitsPerSample, IsResampling, decoderOutputIsTrusted, isBitPerfectRate);
     }
 
     /// <summary>
@@ -1039,7 +1058,22 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
         new(sampleRate, bitsPerSample, channels,
             isFloatSource ? IeeeFloatSubFormatGuid : PcmSubFormatGuid,
             validBits ?? bitsPerSample,
-            channelMask: 0);
+            channelMask: DefaultChannelMask(channels));
+
+    /// <summary>
+    /// NAudio の WaveFormatExtensible 既定コンストラクタ（channelMask省略時）と同じ規則で
+    /// チャンネルマスクを算出する。channelMask=0（未指定）のままだと一部デバイス・ドライバの
+    /// 排他モード判定で「対応なし」と誤判定されることがあるため、明示的にマスクを指定する。
+    /// </summary>
+    private static int DefaultChannelMask(int channels)
+    {
+        int mask = 0;
+        for (int i = 0; i < channels; i++)
+        {
+            mask |= 1 << i;
+        }
+        return mask;
+    }
 
     /// <summary>
     /// 出力フォーマットをUI表示向けの詳細ラベル（例: "PCM", "Extensible/PCM", "Extensible/PCM(24-in-32)"）に変換する。

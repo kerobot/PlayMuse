@@ -619,7 +619,7 @@ NAudio 3.x 系では、ビットパーフェクト再生に関わる部分にも
 
 ### 追記：排他モードでの曲終端エラーとその暫定対応
 
-NAudio 3.3.0 へのアップグレード後、しばらく運用してから WASAPI 排他モード（`WithExclusiveMode()` + `WithEventSync()`）で再生していると、曲が最後まで再生し終わったタイミングで `NAudio.CoreAudioApi.CoreAudioException: A buffer size error occurred.`（`AUDCLNT_E_BUFFER_SIZE_ERROR`）が発生し、次の曲に自動で進まなくなる不具合が見つかりました。共有モードでは発生せず、排他モード特有の現象でした。
+NAudio 3.3.0 へのアップグレード後、WASAPI 排他モード（`WithExclusiveMode()` + `WithEventSync()`）で再生していると、曲が最後まで再生し終わったタイミングで `NAudio.CoreAudioApi.CoreAudioException: A buffer size error occurred.`（`AUDCLNT_E_BUFFER_SIZE_ERROR`）が発生し、次の曲に自動で進まなくなる不具合が見つかりました。共有モードでは発生せず、排他モード特有の現象でした。
 
 調査の結果、原因は NAudio 3.3.0 の `WasapiPlayer.FillBuffer` 内部にありました。デコード元の `IWaveProvider.Read` が `0`（曲の終端）を返すと、`FillBuffer` は無条件に `IAudioRenderClient.ReleaseBuffer` を `0` フレームで呼び出します。ところが WASAPI の排他・イベント同期モードでは `ReleaseBuffer` に `0` フレームを渡すことが許容されておらず、`AUDCLNT_E_BUFFER_SIZE_ERROR` が返されてしまいます。`WasapiPlayer` / `WasapiPlayerBuilder` はシールド・内部型が多く、アプリ側から直接パッチを当てることはできないため、`IWaveProvider` パイプライン側で回避する方針にしました。
 
@@ -659,4 +659,67 @@ internal sealed class ExclusiveModeEndOfStreamWorkaroundProvider(IWaveProvider s
 
 なお、これはあくまで NAudio 3.3.0 側の不具合に対するアプリケーション層での暫定対応（ワークアラウンド）です。NAudio 側で `WasapiPlayer.FillBuffer` の排他・イベント同期モード時の終端処理が修正されれば、このワークアラウンドは不要になる可能性が高く、今後 NAudio のバージョンを上げる際には改めて要否を確認するつもりです。
 
-ビットパーフェクト再生のロジック自体（フォーマット比較・24-in-32 パッキング・リサンプリングのフォールバックなど）には手を入れておらず、今回はあくまで NAudio のバージョン追従が目的です。ライブラリのメジャーバージョンアップに追従する際は、こうした地味な書き換えが地味に効いてくるなとあらためて感じました。
+### 追記：チャンネルマスク未指定による 24bit 排他直接出力の回帰バグ
+
+NAudio 3.3.0 へのバージョンアップ後、「排他モードで 24bit 音源を再生しているのに、デバイスへ渡る実フォーマットが 16bit になっておりビットパーフェクトになっていない」という不具合が見つかりました。サンプルレートはファイルと一致しているため一見問題なさそうに見えるのですが、ビット深度だけが意図せず変換されてしまっていました。
+
+ログを仕込んで実機トレースを取得したところ、次のような不可解な状況が判明しました。
+
+- デバイス対応フォーマット一覧のログには `96000Hz 24bit 2ch (Extensible/PCM, validBits=24)` が「対応」として出力されている
+- にもかかわらず、直接出力候補を解決する `ResolveDirectOutputFormat` はこのフォーマットを「非対応」と判定し、`FindBestSupportedFormat` が選んだ `96000Hz 16bit Extensible` へフォールバックしてリサンプリングが発生する
+
+一覧表示用のチェックと実際の直接出力候補生成で、判定結果が食い違っていたことになります。原因を探るため、両者が生成している `WaveFormatExtensible` の構造体の中身を比較しました。
+
+```csharp
+private static WaveFormatExtensible CreateExtensibleFormat(int sampleRate, int bitsPerSample, int channels,
+    bool isFloatSource, int? validBits = null) =>
+    new(sampleRate, bitsPerSample, channels,
+        isFloatSource ? IeeeFloatSubFormatGuid : PcmSubFormatGuid,
+        validBits ?? bitsPerSample,
+        channelMask: 0); // ← ここが原因
+```
+
+直接出力候補を生成するこのメソッドでは `channelMask: 0`（未指定）を渡していました。一方、デバイス対応一覧をチェックする側は NAudio の `WaveFormatExtensible(rate, bits, channels)` という 3 引数の既定コンストラクタを使っており、こちらは `channelMask` 省略時に `(1 << channels) - 1`（2ch なら `0x3`）を自動計算して設定する実装になっています。
+
+つまり、同じ「96000Hz 24bit 2ch」のフォーマットでも、
+
+- 一覧チェック側: `channelMask = 0x3`
+- 直接出力候補側: `channelMask = 0`
+
+という異なる `WAVEFORMATEXTENSIBLE` 構造体を排他モードの `IsFormatSupported` に渡していたため、一覧上は対応と出るのに直接出力候補だけ拒否されるという不整合が発生していました。
+
+遡って調べると、この `channelMask: 0` は前述の NAudio 3.3.0 移行時に埋め込まれた回帰でした。移行前（NAudio 2.x 時代）は、非公開フィールドへのリフレクション経由で `SubFormat` と `ValidBitsPerSample` だけを後から上書きする実装になっており、肝心の `WaveFormatExtensible` 本体は一覧チェック側と同じ 3 引数コンストラクタで生成していました。
+
+```csharp
+// 移行前（NAudio 2.4.0 時代）の実装
+var format = new WaveFormatExtensible(sampleRate, bitsPerSample, channels); // channelMaskは自動計算される
+WaveFormatExtensibleSubFormatField.SetValue(format, isFloatSource ? IeeeFloatSubFormatGuid : PcmSubFormatGuid);
+WaveFormatExtensibleValidBitsField.SetValue(format, (short)(validBits ?? bitsPerSample));
+```
+
+NAudio 3.3.0 で `subFormat` / `validBitsPerSample` / `channelMask` を一括指定できる公開コンストラクタが追加されたため、このバージョンアップのタイミングでリフレクションを使った実装を公開プロパティ経由の実装に置き換えました。その置き換えの際に、旧実装が暗黙的に行っていた「`channelMask` の自動計算」を見落として `channelMask: 0` の固定値にしてしまい、以降ずっと 24bit 排他直接出力がデバイスによっては成立しなくなっていたことになります。
+
+修正は、一覧チェック側と同じ規則でチャンネルマスクを明示的に計算するヘルパーを追加するだけです。
+
+```csharp
+private static WaveFormatExtensible CreateExtensibleFormat(int sampleRate, int bitsPerSample, int channels,
+    bool isFloatSource, int? validBits = null) =>
+    new(sampleRate, bitsPerSample, channels,
+        isFloatSource ? IeeeFloatSubFormatGuid : PcmSubFormatGuid,
+        validBits ?? bitsPerSample,
+        channelMask: DefaultChannelMask(channels));
+
+private static int DefaultChannelMask(int channels)
+{
+    int mask = 0;
+    for (int i = 0; i < channels; i++)
+    {
+        mask |= 1 << i;
+    }
+    return mask;
+}
+```
+
+修正後に実機トレースを再取得したところ、`無変換出力可否: True` となり `IsResampling=False` で 24bit のまま排他出力されることを確認できました。
+
+今回の件で、ライブラリのメジャーバージョンアップに伴うリファクタリングでは、「表面的には同じ結果を返すはずの書き換え」であっても、省略時の暗黙的なデフォルト値（今回で言えばチャンネルマスクの自動計算）まで含めて移植できているかを確認する必要があると痛感しました。特に今回のように、判定ロジックの一部だけがフォーマット候補を独自に組み立てている箇所は見落としやすく、テストで気づくには「一覧表示のロジックと実際に使うフォーマットのロジックが本当に同じ値を生成しているか」を突き合わせる視点が必要でした。
