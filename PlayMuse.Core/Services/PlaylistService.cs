@@ -21,10 +21,10 @@ public sealed class PlaylistService : IPlaylistService
 
     public event EventHandler? CurrentTrackChanged;
 
-    public bool IsLoopEnabled
+    public PlaybackLoopMode LoopMode
     {
-        get => playlist.IsLoopEnabled;
-        set => playlist.IsLoopEnabled = value;
+        get => playlist.LoopMode;
+        set => playlist.LoopMode = value;
     }
 
     public void Add(Track track)

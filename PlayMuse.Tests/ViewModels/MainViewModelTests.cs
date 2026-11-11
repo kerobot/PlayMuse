@@ -362,13 +362,79 @@ public class MainViewModelTests
     }
 
     [Fact]
-    public void IsLoopEnabled_WhenChanged_PropagatesToPlaylistService()
+    public void LoopMode_WhenChanged_PropagatesToPlaylistService()
     {
         var fixture = CreateFixture();
 
-        fixture.ViewModel.IsLoopEnabled = true;
+        fixture.ViewModel.LoopMode = PlaybackLoopMode.RepeatAll;
 
-        Assert.True(fixture.PlaylistService.IsLoopEnabled);
+        Assert.Equal(PlaybackLoopMode.RepeatAll, fixture.PlaylistService.LoopMode);
+    }
+
+    [Fact]
+    public void ToggleLoopModeCommand_CyclesThroughOffRepeatAllRepeatOne()
+    {
+        var fixture = CreateFixture();
+
+        Assert.Equal(PlaybackLoopMode.Off, fixture.ViewModel.LoopMode);
+
+        fixture.ViewModel.ToggleLoopModeCommand.Execute(null);
+        Assert.Equal(PlaybackLoopMode.RepeatAll, fixture.ViewModel.LoopMode);
+
+        fixture.ViewModel.ToggleLoopModeCommand.Execute(null);
+        Assert.Equal(PlaybackLoopMode.RepeatOne, fixture.ViewModel.LoopMode);
+
+        fixture.ViewModel.ToggleLoopModeCommand.Execute(null);
+        Assert.Equal(PlaybackLoopMode.Off, fixture.ViewModel.LoopMode);
+    }
+
+    [Fact]
+    public void PlaybackCompleted_WhenLoopModeIsRepeatOne_ReplaysSameTrack()
+    {
+        var fixture = CreateFixture();
+        var trackA = CreateTrack("a.mp3");
+        var trackB = CreateTrack("b.mp3");
+        fixture.PlaylistService.Add(trackA);
+        fixture.PlaylistService.Add(trackB);
+        fixture.ViewModel.LoopMode = PlaybackLoopMode.RepeatOne;
+
+        fixture.PlaybackService.RaisePlaybackCompleted();
+
+        Assert.Equal(0, fixture.PlaylistService.CurrentIndex);
+        Assert.Equal(1, fixture.PlaybackService.PlayCallCount);
+    }
+
+    [Fact]
+    public void PlaybackCompleted_WhenLoopModeIsRepeatAll_WrapsAroundToFirstTrack()
+    {
+        var fixture = CreateFixture();
+        var trackA = CreateTrack("a.mp3");
+        var trackB = CreateTrack("b.mp3");
+        fixture.PlaylistService.Add(trackA);
+        fixture.PlaylistService.Add(trackB);
+        fixture.PlaylistService.TrySetCurrentIndex(1);
+        fixture.ViewModel.LoopMode = PlaybackLoopMode.RepeatAll;
+
+        fixture.PlaybackService.RaisePlaybackCompleted();
+
+        Assert.Equal(0, fixture.PlaylistService.CurrentIndex);
+        Assert.Equal(1, fixture.PlaybackService.PlayCallCount);
+    }
+
+    [Fact]
+    public void PlaybackCompleted_WhenLoopModeIsOffAndAtLastTrack_StopsWithoutReplaying()
+    {
+        var fixture = CreateFixture();
+        var trackA = CreateTrack("a.mp3");
+        var trackB = CreateTrack("b.mp3");
+        fixture.PlaylistService.Add(trackA);
+        fixture.PlaylistService.Add(trackB);
+        fixture.PlaylistService.TrySetCurrentIndex(1);
+
+        fixture.PlaybackService.RaisePlaybackCompleted();
+
+        Assert.Equal(1, fixture.PlaylistService.CurrentIndex);
+        Assert.Equal(0, fixture.PlaybackService.PlayCallCount);
     }
 
     [Fact]

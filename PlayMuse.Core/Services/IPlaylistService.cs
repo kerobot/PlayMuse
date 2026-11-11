@@ -16,7 +16,7 @@ public interface IPlaylistService
 
     event EventHandler? CurrentTrackChanged;
 
-    bool IsLoopEnabled { get; set; }
+    PlaybackLoopMode LoopMode { get; set; }
 
     void Add(Track track);
 

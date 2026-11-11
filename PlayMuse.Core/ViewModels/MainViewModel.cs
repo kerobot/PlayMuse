@@ -68,7 +68,21 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public partial string? AudioInfoText { get; set; }
 
     [ObservableProperty]
-    public partial bool IsLoopEnabled { get; set; }
+    public partial PlaybackLoopMode LoopMode { get; set; }
+
+    /// <summary>
+    /// ループボタン押下時に Off → 全曲ループ → 1曲ループ → Off の順で状態を巡回させる。
+    /// </summary>
+    [RelayCommand]
+    private void ToggleLoopMode()
+    {
+        LoopMode = LoopMode switch
+        {
+            PlaybackLoopMode.Off => PlaybackLoopMode.RepeatAll,
+            PlaybackLoopMode.RepeatAll => PlaybackLoopMode.RepeatOne,
+            _ => PlaybackLoopMode.Off,
+        };
+    }
 
     [ObservableProperty]
     public partial bool IsTrackInfoVisible { get; set; } = true;
@@ -525,9 +539,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
         SaveSettingsIfReady();
     }
 
-    partial void OnIsLoopEnabledChanged(bool value)
+    partial void OnLoopModeChanged(PlaybackLoopMode value)
     {
-        playlistService.IsLoopEnabled = value;
+        playlistService.LoopMode = value;
         SaveSettingsIfReady();
     }
 
@@ -610,6 +624,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         dispatcherService.Invoke(() =>
         {
+            if (LoopMode == PlaybackLoopMode.RepeatOne)
+            {
+                if (playlistService.CurrentTrack is not null)
+                {
+                    playbackService.Position = TimeSpan.Zero;
+                    playbackService.Play();
+                }
+                return;
+            }
+
             if (playlistService.MoveNext())
             {
                 playbackService.Play();
@@ -810,8 +834,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         Volume = Math.Clamp(settings.Volume, 0f, 1f);
         IsExclusiveMode = settings.ShareMode == AudioShareMode.Exclusive;
-        IsLoopEnabled = settings.IsLoopEnabled;
-        playlistService.IsLoopEnabled = settings.IsLoopEnabled;
+        LoopMode = settings.LoopMode;
+        playlistService.LoopMode = settings.LoopMode;
         IsTrackInfoVisible = settings.IsTrackInfoVisible;
         IsSpectrumVisible = settings.IsSpectrumVisible;
 
@@ -844,7 +868,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             ShareMode = IsExclusiveMode ? AudioShareMode.Exclusive : AudioShareMode.Shared,
             OutputDeviceId = SelectedDevice?.Id,
             Volume = (float)Volume,
-            IsLoopEnabled = IsLoopEnabled,
+            LoopMode = LoopMode,
             LastPlaylistFilePath = currentPlaylistFilePath,
             IsTrackInfoVisible = IsTrackInfoVisible,
             IsSpectrumVisible = IsSpectrumVisible,

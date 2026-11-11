@@ -15,7 +15,7 @@ public sealed class Playlist
         ? Tracks[CurrentIndex]
         : null;
 
-    public bool IsLoopEnabled { get; set; }
+    public PlaybackLoopMode LoopMode { get; set; } = PlaybackLoopMode.Off;
 
     public void Add(Track track)
     {
@@ -92,7 +92,7 @@ public sealed class Playlist
 
         if (CurrentIndex >= Tracks.Count - 1)
         {
-            if (IsLoopEnabled && Tracks.Count > 0)
+            if (LoopMode == PlaybackLoopMode.RepeatAll && Tracks.Count > 0)
             {
                 CurrentIndex = 0;
                 return true;
@@ -113,7 +113,7 @@ public sealed class Playlist
 
         if (CurrentIndex <= 0)
         {
-            if (IsLoopEnabled && Tracks.Count > 0)
+            if (LoopMode == PlaybackLoopMode.RepeatAll && Tracks.Count > 0)
             {
                 CurrentIndex = Tracks.Count - 1;
                 return true;
