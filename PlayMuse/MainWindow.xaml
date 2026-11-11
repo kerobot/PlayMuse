@@ -66,7 +66,6 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <!-- カスタムタイトルバー -->
@@ -213,6 +212,22 @@
         <DockPanel Grid.Row="3" Margin="12,8,12,0" LastChildFill="False">
             <CheckBox DockPanel.Dock="Left" Content="TRACK INFOMATION" VerticalAlignment="Center"
                       IsChecked="{Binding IsTrackInfoVisible}"/>
+            <ToggleButton DockPanel.Dock="Right"
+                          IsChecked="{Binding IsLoopEnabled}"
+                          Padding="8,2"
+                          ToolTip="ループ再生">
+                <TextBlock>
+                    <Run Text="🔁"/>
+                </TextBlock>
+            </ToggleButton>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
+                <TextBlock Text="&#9834;" FontSize="11" Opacity="0.7" Margin="0,0,4,0"/>
+                <TextBlock Text="{Binding CurrentTrack.Artist, Mode=OneWay}" FontSize="11" FontWeight="SemiBold" Opacity="0.7"
+                           TextTrimming="CharacterEllipsis"/>
+                <TextBlock Text=" - " FontSize="11" Opacity="0.4"/>
+                <TextBlock Text="{Binding CurrentTrack.Title, Mode=OneWay}" FontSize="11" Opacity="0.7"
+                           TextTrimming="CharacterEllipsis"/>
+            </StackPanel>
         </DockPanel>
 
         <!-- オーディオ情報パネル -->
@@ -258,34 +273,33 @@
         </Border>
 
         <!-- SPECTRUM ANALYZER ヘッダー -->
-        <DockPanel Grid.Row="5" Margin="12,8,12,0" LastChildFill="False">
+        <DockPanel Grid.Row="5" Margin="12,8,12,0" LastChildFill="True">
             <CheckBox DockPanel.Dock="Left" Content="SPECTRUM ANALYZER" VerticalAlignment="Center"
                       IsChecked="{Binding IsSpectrumVisible}"/>
+            <Grid Margin="12,0,0,0" VerticalAlignment="Center">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="L" FontSize="9" Opacity="0.6"
+                           VerticalAlignment="Center" Margin="0,0,4,0"
+                           Foreground="{StaticResource AccentGlowBrush}"/>
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="R" FontSize="9" Opacity="0.6"
+                           VerticalAlignment="Center" Margin="0,0,4,0"
+                           Foreground="{StaticResource AccentGlowBrush}"/>
+                <Canvas x:Name="HeaderLevelMeterCanvas" Grid.Row="0" Grid.RowSpan="2" Grid.Column="1"
+                        Height="18" SizeChanged="HeaderLevelMeterCanvas_SizeChanged"/>
+            </Grid>
         </DockPanel>
 
-        <!-- スペアナ表示欄: レベルメーターとスペクトラムを別枠に分離し、横並びに配置する -->
+        <!-- スペクトラム表示欄: 周波数スペクトラムを全幅表示する -->
         <Grid x:Name="SpectrumPanel" Grid.Row="6" Margin="12,8,12,0" ClipToBounds="True">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="8"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-
-            <!-- L/R レベルメーター枠 -->
-            <Border Grid.Column="0" ClipToBounds="True"
-                    Background="{StaticResource PanelDarkBrush}" BorderBrush="{StaticResource AccentDimBrush}" BorderThickness="1">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="*"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    <Canvas x:Name="LevelMeterCanvas" Grid.Row="0" Width="40" SizeChanged="LevelMeterCanvas_SizeChanged"/>
-                    <Grid x:Name="LevelMeterLabelsGrid" Grid.Row="1" Width="40" Margin="2,2,2,2"/>
-                </Grid>
-            </Border>
-
             <!-- 周波数スペクトラム枠 -->
-            <Border Grid.Column="2" ClipToBounds="True"
+            <Border ClipToBounds="True"
                     Background="{StaticResource PanelDarkBrush}" BorderBrush="{StaticResource AccentDimBrush}" BorderThickness="1">
                 <Grid>
                     <Grid.RowDefinitions>
@@ -298,32 +312,8 @@
             </Border>
         </Grid>
 
-        <!-- 再生中のトラック情報 -->
-        <Grid Grid.Row="7" Margin="12,8,12,0" Visibility="{Binding CurrentTrack, Converter={StaticResource NullToVisibilityConverter}}">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-            <TextBlock Grid.Column="0" Text="♪" FontSize="16" VerticalAlignment="Center" Margin="0,0,8,0" Opacity="0.7"/>
-            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="{Binding CurrentTrack.Artist, Mode=OneWay}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                <TextBlock Text=" - " Margin="4,0" Opacity="0.7"/>
-                <TextBlock Text="{Binding CurrentTrack.Title, Mode=OneWay}" TextTrimming="CharacterEllipsis"/>
-            </StackPanel>
-            <ToggleButton Grid.Column="2" 
-                          IsChecked="{Binding IsLoopEnabled}"
-                          Padding="8,2"
-                          Margin="8,0,0,0"
-                          ToolTip="ループ再生">
-                <TextBlock>
-                    <Run Text="🔁"/>
-                </TextBlock>
-            </ToggleButton>
-        </Grid>
-
         <!-- シーク -->
-        <Grid Grid.Row="8" Margin="12,8,12,0">
+        <Grid Grid.Row="7" Margin="12,8,12,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
@@ -342,7 +332,7 @@
         </Grid>
 
         <!-- 再生系トランスポート + 音量 -->
-        <Grid Grid.Row="9" Margin="12,8,12,0">
+        <Grid Grid.Row="8" Margin="12,8,12,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
@@ -360,7 +350,7 @@
         </Grid>
 
         <!-- ステータス -->
-        <TextBlock Grid.Row="10" Margin="12,8,12,10" Opacity="0.8" TextTrimming="CharacterEllipsis"
+        <TextBlock Grid.Row="9" Margin="12,8,12,10" Opacity="0.8" TextTrimming="CharacterEllipsis"
                    Foreground="{StaticResource TextSecondaryBrush}"
                    Text="{Binding StatusMessage}"/>
     </Grid>

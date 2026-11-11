@@ -27,8 +27,10 @@ public partial class MainWindow : Window
     private const int SpectrumRowCount = 10;
     private const double SpectrumPartialCellMinOpacity = 0.35;
 
-    /// <summary>L/R縦型レベルメーターのレーン数（固定で2）。</summary>
-    private const int LevelMeterLaneCount = 2;
+    /// <summary>ヘッダーの横型L/R音量レベルメーターのレーン数（固定で2＝L/R）。</summary>
+    private const int HeaderLevelMeterLaneCount = 2;
+    /// <summary>ヘッダーの横型L/R音量レベルメーターのセグメント数（解像度）。</summary>
+    private const int HeaderLevelMeterSegmentCount = 20;
     private static readonly string[] SpectrumFrequencyLabels =
     [
         "20", "30", "40", "70", "120", "190", "310", "490",
@@ -43,12 +45,11 @@ public partial class MainWindow : Window
     private readonly System.Windows.Shapes.Rectangle[,] spectrumCells = new System.Windows.Shapes.Rectangle[SpectrumColumnCount, SpectrumRowCount];
     private readonly Brush?[,] spectrumCellFills = new Brush?[SpectrumColumnCount, SpectrumRowCount];
     private readonly double[,] spectrumCellOpacities = new double[SpectrumColumnCount, SpectrumRowCount];
-    private readonly System.Windows.Shapes.Rectangle[,] levelMeterCells = new System.Windows.Shapes.Rectangle[LevelMeterLaneCount, SpectrumRowCount];
-    private readonly Brush?[,] levelMeterCellFills = new Brush?[LevelMeterLaneCount, SpectrumRowCount];
-    private readonly double[,] levelMeterCellOpacities = new double[LevelMeterLaneCount, SpectrumRowCount];
+    private readonly System.Windows.Shapes.Rectangle[,] headerLevelMeterCells = new System.Windows.Shapes.Rectangle[HeaderLevelMeterLaneCount, HeaderLevelMeterSegmentCount];
+    private readonly Brush?[,] headerLevelMeterCellFills = new Brush?[HeaderLevelMeterLaneCount, HeaderLevelMeterSegmentCount];
+    private readonly double[,] headerLevelMeterCellOpacities = new double[HeaderLevelMeterLaneCount, HeaderLevelMeterSegmentCount];
     private readonly System.Windows.Shapes.Line[] spectrumVerticalGridLines = new System.Windows.Shapes.Line[SpectrumColumnCount + 1];
     private readonly System.Windows.Shapes.Line[] spectrumHorizontalGridLines = new System.Windows.Shapes.Line[SpectrumRowCount + 1];
-    private readonly System.Windows.Shapes.Line[] levelMeterHorizontalGridLines = new System.Windows.Shapes.Line[SpectrumRowCount + 1];
     private Point? dragStartPoint;
     private Track? draggingTrack;
     private DropIndicatorAdorner? dropIndicatorAdorner;
@@ -81,12 +82,16 @@ public partial class MainWindow : Window
         };
         spectrumTimer.Tick += (_, _) =>
         {
-            RenderSpectrum();
-            RenderChannelLevels();
+            if (viewModel.IsSpectrumVisible)
+            {
+                RenderSpectrum();
+            }
+
+            RenderHeaderLevelMeter();
         };
 
         BuildSpectrumGrid();
-        BuildLevelMeterGrid();
+        BuildHeaderLevelMeterGrid();
         RestoreWindowBounds();
 
         Loaded += (_, _) => positionTimer.Start();
@@ -94,6 +99,7 @@ public partial class MainWindow : Window
         {
             ToggleTrackInfoPanel(viewModel.IsTrackInfoVisible, animate: false);
             ToggleSpectrumPanel(viewModel.IsSpectrumVisible, animate: false);
+            spectrumTimer.Start();
         };
         Closing += (_, _) => SaveWindowBounds();
         Closed += (_, _) =>
@@ -211,16 +217,9 @@ public partial class MainWindow : Window
     /// </summary>
     private void ToggleSpectrumPanel(bool visible, bool animate)
     {
+        // \u30D8\u30C3\u30C0\u30FC\u306E\u6A2A\u578BL/R\u97F3\u91CF\u30EC\u30D9\u30EB\u30E1\u30FC\u30BF\u30FC\u306F\u30D1\u30CD\u30EB\u3092\u6298\u308A\u305F\u305F\u3093\u3067\u3082\u8868\u793A\u3057\u7D9A\u3051\u308B\u305F\u3081\u3001
+        // spectrumTimer\u306F\u5E38\u6642\u7A3C\u50CD\u3055\u305B\u3001\u5468\u6CE2\u6570\u30B9\u30DA\u30AF\u30C8\u30E9\u30E0\u672C\u4F53\u306E\u63CF\u753B\u306E\u307F\u3092IsSpectrumVisible\u3067\u5236\u5FA1\u3059\u308B\uFF08Tick\u30CF\u30F3\u30C9\u30E9\u5074\u3092\u53C2\u7167\uFF09\u3002
         AnimatePanelHeight(SpectrumPanel, visible ? SpectrumPanelExpandedHeight : 0, animate);
-
-        if (visible)
-        {
-            spectrumTimer.Start();
-        }
-        else
-        {
-            spectrumTimer.Stop();
-        }
     }
 
     private static void AnimatePanelHeight(FrameworkElement panel, double targetHeight, bool animate)
@@ -315,63 +314,29 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// L/Rレベルメーター欄に縦10マス×横2レーンの罫線と、各マスに対応するLED風の矩形を配置する。
-    /// ウィンドウサイズ変更時も比率を維持できるよう、実際の座標計算は <see cref="LevelMeterCanvas_SizeChanged"/> で行う。
+    /// SPECTRUM ANALYZERヘッダー内の横型L/R音量レベルメーターに、レーン（L/R）ごとのLED風の矩形を横並びに配置する。
+    /// ピークホールドは持たず、現在レベルのみを表現する。実際の座標計算は <see cref="HeaderLevelMeterCanvas_SizeChanged"/> で行う。
     /// </summary>
-    private void BuildLevelMeterGrid()
+    private void BuildHeaderLevelMeterGrid()
     {
-        LevelMeterLabelsGrid.ColumnDefinitions.Clear();
-        LevelMeterLabelsGrid.Children.Clear();
+        HeaderLevelMeterCanvas.Children.Clear();
 
-        for (var lane = 0; lane < LevelMeterLaneCount; lane++)
+        for (var lane = 0; lane < HeaderLevelMeterLaneCount; lane++)
         {
-            LevelMeterLabelsGrid.ColumnDefinitions.Add(new ColumnDefinition());
-        }
-
-        for (var lane = 0; lane < LevelMeterLaneCount; lane++)
-        {
-            var laneLabel = new TextBlock
-            {
-                Text = lane == 0 ? "L" : "R",
-                FontSize = 9,
-                Opacity = 0.6,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                Foreground = (Brush)FindResource("AccentGlowBrush"),
-            };
-            Grid.SetColumn(laneLabel, lane);
-            LevelMeterLabelsGrid.Children.Add(laneLabel);
-        }
-
-        LevelMeterCanvas.Children.Clear();
-
-        for (var row = 0; row <= SpectrumRowCount; row++)
-        {
-            var line = new System.Windows.Shapes.Line
-            {
-                Stroke = (Brush)FindResource("AccentDimBrush"),
-                StrokeThickness = 0.5,
-                Opacity = 0.4,
-            };
-            levelMeterHorizontalGridLines[row] = line;
-            LevelMeterCanvas.Children.Add(line);
-        }
-
-        for (var lane = 0; lane < LevelMeterLaneCount; lane++)
-        {
-            for (var row = 0; row < SpectrumRowCount; row++)
+            for (var segment = 0; segment < HeaderLevelMeterSegmentCount; segment++)
             {
                 var cell = new System.Windows.Shapes.Rectangle
                 {
                     Fill = Brushes.Transparent,
                 };
-                levelMeterCells[lane, row] = cell;
-                levelMeterCellFills[lane, row] = cell.Fill;
-                levelMeterCellOpacities[lane, row] = cell.Opacity;
-                LevelMeterCanvas.Children.Add(cell);
+                headerLevelMeterCells[lane, segment] = cell;
+                headerLevelMeterCellFills[lane, segment] = cell.Fill;
+                headerLevelMeterCellOpacities[lane, segment] = cell.Opacity;
+                HeaderLevelMeterCanvas.Children.Add(cell);
             }
         }
 
-        LayoutLevelMeterGrid();
+        LayoutHeaderLevelMeterGrid();
     }
 
     /// <summary>
@@ -379,7 +344,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void SpectrumCanvas_SizeChanged(object sender, SizeChangedEventArgs e) => LayoutSpectrumGrid();
 
-    private void LevelMeterCanvas_SizeChanged(object sender, SizeChangedEventArgs e) => LayoutLevelMeterGrid();
+    private void HeaderLevelMeterCanvas_SizeChanged(object sender, SizeChangedEventArgs e) => LayoutHeaderLevelMeterGrid();
 
     private void LayoutSpectrumGrid()
     {
@@ -428,38 +393,28 @@ public partial class MainWindow : Window
         }
     }
 
-    private void LayoutLevelMeterGrid()
+    private void LayoutHeaderLevelMeterGrid()
     {
-        var width = LevelMeterCanvas.ActualWidth;
-        var height = LevelMeterCanvas.ActualHeight;
+        var width = HeaderLevelMeterCanvas.ActualWidth;
+        var height = HeaderLevelMeterCanvas.ActualHeight;
         if (width <= 0 || height <= 0)
         {
             return;
         }
 
-        var laneWidth = width / LevelMeterLaneCount;
-        var cellHeight = height / SpectrumRowCount;
+        var laneHeight = height / HeaderLevelMeterLaneCount;
+        var segmentWidth = width / HeaderLevelMeterSegmentCount;
         const double cellMargin = 1.0;
 
-        for (var row = 0; row <= SpectrumRowCount; row++)
+        for (var lane = 0; lane < HeaderLevelMeterLaneCount; lane++)
         {
-            var line = levelMeterHorizontalGridLines[row];
-            var y = row * cellHeight;
-            line.X1 = 0;
-            line.Y1 = y;
-            line.X2 = width;
-            line.Y2 = y;
-        }
-
-        for (var lane = 0; lane < LevelMeterLaneCount; lane++)
-        {
-            for (var row = 0; row < SpectrumRowCount; row++)
+            for (var segment = 0; segment < HeaderLevelMeterSegmentCount; segment++)
             {
-                var cell = levelMeterCells[lane, row];
-                cell.Width = Math.Max(0, laneWidth - cellMargin * 2);
-                cell.Height = Math.Max(0, cellHeight - cellMargin * 2);
-                Canvas.SetLeft(cell, lane * laneWidth + cellMargin);
-                Canvas.SetTop(cell, row * cellHeight + cellMargin);
+                var cell = headerLevelMeterCells[lane, segment];
+                cell.Width = Math.Max(0, segmentWidth - cellMargin * 2);
+                cell.Height = Math.Max(0, laneHeight - cellMargin * 2);
+                Canvas.SetLeft(cell, segment * segmentWidth + cellMargin);
+                Canvas.SetTop(cell, lane * laneHeight + cellMargin);
             }
         }
     }
@@ -533,50 +488,40 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 33ms間隔でViewModelからL/Rチャンネルの現在レベル・ピークホールドレベル（連続値）を取得し、
-    /// 縦型音量レベルメーターのLEDセルの点灯状態を更新する。描画ロジックは <see cref="RenderSpectrum"/> と同様。
+    /// 33ms間隔でViewModelからL/Rチャンネルの現在レベル（連続値）を取得し、
+    /// ヘッダーの横型音量レベルメーターのLEDセルの点灯状態を更新する。ピークホールドは表示しない。
     /// </summary>
-    private void RenderChannelLevels()
+    private void RenderHeaderLevelMeter()
     {
         var (left, right) = viewModel.GetChannelLevels();
         var dimBrush = (Brush)FindResource("SpectrumBarBrush");
-        var glowBrush = (Brush)FindResource("SpectrumPeakBrush");
 
-        RenderChannelLevelLane(0, left, dimBrush, glowBrush);
-        RenderChannelLevelLane(1, right, dimBrush, glowBrush);
+        RenderHeaderLevelMeterLane(0, left, dimBrush);
+        RenderHeaderLevelMeterLane(1, right, dimBrush);
     }
 
-    private void RenderChannelLevelLane(int lane, ChannelLevel channelLevel, Brush dimBrush, Brush glowBrush)
+    private void RenderHeaderLevelMeterLane(int lane, ChannelLevel channelLevel, Brush dimBrush)
     {
-        var level = channelLevel.Level;
-        var peak = channelLevel.PeakLevel;
-        var peakRow = SpectrumRowCount - (int)Math.Round(Math.Clamp(peak, 0, SpectrumRowCount));
+        // channelLevel.Level は 0..SpectrumRowCount のスケールなので、ヘッダーメーターのセグメント数に合わせて換算する。
+        var scaledLevel = channelLevel.Level * HeaderLevelMeterSegmentCount / SpectrumRowCount;
 
-        for (var row = 0; row < SpectrumRowCount; row++)
+        for (var segment = 0; segment < HeaderLevelMeterSegmentCount; segment++)
         {
-            var rowLevel = SpectrumRowCount - row;
-            var cell = levelMeterCells[lane, row];
+            var cell = headerLevelMeterCells[lane, segment];
 
             Brush fill;
             double opacity;
 
-            if (row == peakRow && peak > level)
-            {
-                fill = glowBrush;
-                opacity = 1.0;
-            }
-            else if (rowLevel <= level)
+            if (segment < scaledLevel)
             {
                 fill = dimBrush;
                 opacity = 1.0;
             }
-            else if (rowLevel - 1 < level)
+            else if (segment < scaledLevel + 1)
             {
-                // 現在のレベルの先端（最上段）は常にもっとも明るい色で表示する。
-                // 段の境界をまたぐ際は不透明度をレベルに応じて滑らかに変化させ、
-                // レベルが段の上限に近づくほど完全な明るさに収束するようにする。
-                fill = glowBrush;
-                opacity = Math.Clamp(level - (rowLevel - 1), SpectrumPartialCellMinOpacity, 1.0);
+                // レベルがセグメントの途中で終わる場合、端数分だけ不透明度を上げて滑らかに見せる。
+                fill = dimBrush;
+                opacity = Math.Clamp(scaledLevel - segment, SpectrumPartialCellMinOpacity, 1.0);
             }
             else
             {
@@ -584,16 +529,16 @@ public partial class MainWindow : Window
                 opacity = 1.0;
             }
 
-            if (!ReferenceEquals(levelMeterCellFills[lane, row], fill))
+            if (!ReferenceEquals(headerLevelMeterCellFills[lane, segment], fill))
             {
                 cell.Fill = fill;
-                levelMeterCellFills[lane, row] = fill;
+                headerLevelMeterCellFills[lane, segment] = fill;
             }
 
-            if (levelMeterCellOpacities[lane, row] != opacity)
+            if (headerLevelMeterCellOpacities[lane, segment] != opacity)
             {
                 cell.Opacity = opacity;
-                levelMeterCellOpacities[lane, row] = opacity;
+                headerLevelMeterCellOpacities[lane, segment] = opacity;
             }
         }
     }

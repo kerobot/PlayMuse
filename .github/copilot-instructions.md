@@ -2,3 +2,4 @@
 
 ## プロジェクト ガイドライン
 - ビットパーフェクト再生を目指すオーディオプレーヤーPlayMuseでは、FLACはMedia Foundationではなく専用デコーダー（NAudio.Flac.FlacReader等）でSTREAMINFOのビット深度を直接参照し、フォーマット互換性判定はExactFormatMatch/LosslessRepacking/RequiresConversionの3段階で行う設計方針を採用している。
+- スペクトラムアナライザやトラックインフォなどの折りたたみ可能パネルの実装では、ヘッダー部分（チェックボックスを含むDockPanel）と本体パネル（折りたたみアニメーション対象）を別要素に分離し、常時表示したい情報（レベルメーター、アーティスト名等）はヘッダー側に配置する設計を採用している。
