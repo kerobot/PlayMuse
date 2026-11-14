@@ -18,4 +18,8 @@
     <InternalsVisibleTo Include="PlayMuse.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\PlayMuse.LevelMeterIpc\PlayMuse.LevelMeterIpc.csproj" />
+  </ItemGroup>
+
 </Project>

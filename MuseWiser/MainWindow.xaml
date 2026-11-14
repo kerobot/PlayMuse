@@ -1,0 +1,269 @@
+﻿<Window x:Class="MuseWiser.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:MuseWiser"
+        xmlns:vm="clr-namespace:MuseWiser.ViewModels"
+        xmlns:conv="clr-namespace:MuseWiser.Converters"
+        mc:Ignorable="d"
+        Title="MuseWiser"
+        Width="540"
+        Height="540"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        WindowStartupLocation="Manual"
+        Left="40"
+        Top="40"
+        d:DataContext="{d:DesignInstance vm:MainViewModel}">
+    <Viewbox Stretch="Fill">
+        <Grid Width="540" Margin="16">
+            <Grid.Resources>
+                <DataTemplate x:Key="VolumeSegmentTemplate">
+                    <Border Height="14" Margin="1,0"
+                        HorizontalAlignment="Stretch"
+                        CornerRadius="2">
+                        <Border.Background>
+                            <MultiBinding Converter="{StaticResource LevelSegmentBrushMultiConverter}">
+                                <Binding RelativeSource="{RelativeSource AncestorType=ItemsControl}" Path="Tag" />
+                                <Binding />
+                            </MultiBinding>
+                        </Border.Background>
+                    </Border>
+                </DataTemplate>
+                <DataTemplate x:Key="SpectrumSegmentTemplate">
+                    <Grid Height="6" Margin="0,1">
+                        <Border CornerRadius="1">
+                            <Border.Background>
+                                <MultiBinding Converter="{StaticResource SpectrumSegmentBrushMultiConverter}">
+                                    <Binding RelativeSource="{RelativeSource AncestorType=ItemsControl}" Path="DataContext.ActiveSegmentCount" />
+                                    <Binding />
+                                </MultiBinding>
+                            </Border.Background>
+                        </Border>
+                        <Border CornerRadius="1">
+                            <Border.Background>
+                                <MultiBinding Converter="{StaticResource SpectrumPeakSegmentBrushMultiConverter}">
+                                    <Binding RelativeSource="{RelativeSource AncestorType=ItemsControl}" Path="DataContext.PeakSegmentIndex" />
+                                    <Binding />
+                                </MultiBinding>
+                            </Border.Background>
+                        </Border>
+                    </Grid>
+                </DataTemplate>
+                <Style TargetType="TextBlock">
+                    <Setter Property="Effect">
+                        <Setter.Value>
+                            <DropShadowEffect Color="Black"
+                                               Direction="315"
+                                               ShadowDepth="1"
+                                               BlurRadius="3"
+                                               Opacity="0.85" />
+                        </Setter.Value>
+                    </Setter>
+                </Style>
+                <Style x:Key="WeatherStatCaptionStyle" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                    <Setter Property="FontSize" Value="10" />
+                    <Setter Property="Foreground" Value="#88FFFFFF" />
+                    <Setter Property="HorizontalAlignment" Value="Center" />
+                    <Setter Property="TextAlignment" Value="Center" />
+                    <Setter Property="TextOptions.TextFormattingMode" Value="Ideal" />
+                    <Setter Property="Typography.Capitals" Value="AllSmallCaps" />
+                </Style>
+                <Style x:Key="WeatherStatValueStyle" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                    <Setter Property="FontSize" Value="17" />
+                    <Setter Property="FontWeight" Value="SemiBold" />
+                    <Setter Property="Foreground" Value="White" />
+                    <Setter Property="HorizontalAlignment" Value="Center" />
+                    <Setter Property="Margin" Value="0,1,0,0" />
+                </Style>
+            </Grid.Resources>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0"
+                   Text="{Binding Clock.TimeText}"
+                   FontFamily="Consolas"
+                   FontSize="96"
+                   FontWeight="Bold"
+                   Foreground="White"
+                   TextAlignment="Center"
+                   Width="440"
+                   HorizontalAlignment="Center" />
+
+            <TextBlock Grid.Row="1"
+                   Text="{Binding Clock.DateText}"
+                   FontFamily="Consolas"
+                   FontSize="30"
+                   Foreground="#CCFFFFFF"
+                   TextAlignment="Center"
+                   HorizontalAlignment="Center"
+                   Margin="0,4,0,0" />
+
+            <Separator Grid.Row="2" Margin="0,10,0,10" Background="#55FFFFFF"
+                   Visibility="{Binding Weather.HasData, Converter={StaticResource BoolToVisibilityConverter}}" />
+
+            <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Center"
+                    Visibility="{Binding Weather.HasData, Converter={StaticResource BoolToVisibilityConverter}}">
+                <Image Source="{Binding Weather.IconUrl}"
+                   Width="56" Height="56"
+                   Stretch="Uniform"
+                   VerticalAlignment="Center"
+                   Margin="0,0,8,0" />
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="{Binding Weather.TemperatureText}"
+                           FontSize="26"
+                           FontWeight="SemiBold"
+                           Foreground="White"
+                           HorizontalAlignment="Center" />
+                    <TextBlock Text="{Binding Weather.Description}"
+                           FontSize="16"
+                           Foreground="#CCFFFFFF"
+                           HorizontalAlignment="Center"
+                           Margin="0,2,0,0" />
+                </StackPanel>
+            </StackPanel>
+
+            <Grid Grid.Row="4" Margin="0,8,0,0"
+              Visibility="{Binding Weather.HasData, Converter={StaticResource BoolToVisibilityConverter}}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <StackPanel Grid.Row="0" Grid.Column="0">
+                    <TextBlock Text="FEELS LIKE" Style="{StaticResource WeatherStatCaptionStyle}" />
+                    <TextBlock Text="{Binding Weather.FeelsLikeValue}" Style="{StaticResource WeatherStatValueStyle}" />
+                </StackPanel>
+                <StackPanel Grid.Row="0" Grid.Column="1">
+                    <TextBlock Text="HUMIDITY" Style="{StaticResource WeatherStatCaptionStyle}" />
+                    <TextBlock Text="{Binding Weather.HumidityValue}" Style="{StaticResource WeatherStatValueStyle}" />
+                </StackPanel>
+                <StackPanel Grid.Row="0" Grid.Column="2">
+                    <TextBlock Text="PRESSURE" Style="{StaticResource WeatherStatCaptionStyle}" />
+                    <TextBlock Text="{Binding Weather.PressureValue}" Style="{StaticResource WeatherStatValueStyle}" />
+                </StackPanel>
+
+                <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,10,0,0">
+                    <TextBlock Text="RAIN" Style="{StaticResource WeatherStatCaptionStyle}" />
+                    <TextBlock Text="{Binding Weather.RainVolumeValue}" Style="{StaticResource WeatherStatValueStyle}" />
+                </StackPanel>
+                <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,10,0,0">
+                    <TextBlock Text="WIND" Style="{StaticResource WeatherStatCaptionStyle}" />
+                    <TextBlock Text="{Binding Weather.WindSpeedValue}" Style="{StaticResource WeatherStatValueStyle}" />
+                </StackPanel>
+                <StackPanel Grid.Row="1" Grid.Column="2" Margin="0,10,0,0">
+                    <TextBlock Text="DIRECTION" Style="{StaticResource WeatherStatCaptionStyle}" />
+                    <TextBlock Text="{Binding Weather.WindDirectionValue}" Style="{StaticResource WeatherStatValueStyle}" />
+                </StackPanel>
+            </Grid>
+
+            <Separator Grid.Row="5" Margin="0,10,0,8" Background="#55FFFFFF"
+                   Visibility="{Binding VolumeMeter.IsActive, Converter={StaticResource BoolToVisibilityConverter}}" />
+
+            <TextBlock Grid.Row="6"
+                   Text="{Binding AudioDevice.DisplayText}"
+                   FontSize="12"
+                   Foreground="#CCFFFFFF"
+                   TextAlignment="Center"
+                   HorizontalAlignment="Center"
+                   Margin="0,0,0,6" />
+
+            <StackPanel Grid.Row="7" Margin="0,0,0,0"
+                    Visibility="{Binding VolumeMeter.IsActive, Converter={StaticResource BoolToVisibilityConverter}}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="L" Width="16" Foreground="White" FontSize="12" VerticalAlignment="Center" />
+                    <ItemsControl Grid.Column="1"
+                              ItemsSource="{Binding VolumeMeter.SegmentIndices}"
+                              Tag="{Binding VolumeMeter.LeftLevel}"
+                              ItemTemplate="{StaticResource VolumeSegmentTemplate}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <UniformGrid Rows="1" Columns="16" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                    </ItemsControl>
+                </Grid>
+                <Grid Margin="0,4,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="R" Width="16" Foreground="White" FontSize="12" VerticalAlignment="Center" />
+                    <ItemsControl Grid.Column="1"
+                              ItemsSource="{Binding VolumeMeter.SegmentIndices}"
+                              Tag="{Binding VolumeMeter.RightLevel}"
+                              ItemTemplate="{StaticResource VolumeSegmentTemplate}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <UniformGrid Rows="1" Columns="16" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                    </ItemsControl>
+                </Grid>
+            </StackPanel>
+
+            <StackPanel Grid.Row="8" Margin="0,10,0,0"
+                    Visibility="{Binding VolumeMeter.IsActive, Converter={StaticResource BoolToVisibilityConverter}}">
+                <ItemsControl ItemsSource="{Binding VolumeMeter.SpectrumBands}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <UniformGrid Rows="1" Columns="16" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Height="96" Margin="2,0" VerticalAlignment="Bottom"
+                                Background="#22FFFFFF" CornerRadius="2" Padding="2">
+                                <ItemsControl ItemsSource="{x:Static vm:VolumeMeterViewModel.SpectrumSegmentIndices}"
+                                          ItemTemplate="{StaticResource SpectrumSegmentTemplate}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <UniformGrid Rows="{x:Static vm:SpectrumBandViewModel.SegmentCount}" Columns="1" />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                </ItemsControl>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <ItemsControl ItemsSource="{Binding VolumeMeter.SpectrumBands}" Margin="0,2,0,0">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <UniformGrid Rows="1" Columns="16" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Label}"
+                                   FontSize="9"
+                                   Foreground="#AAFFFFFF"
+                                   HorizontalAlignment="Center" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Grid>
+    </Viewbox>
+</Window>

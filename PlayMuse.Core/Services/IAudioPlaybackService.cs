@@ -32,6 +32,13 @@ public interface IAudioPlaybackService : IDisposable
     AudioShareMode ActualShareMode { get; }
 
     /// <summary>
+    /// <see cref="ActualShareMode"/> が変化したときに発火するイベント。
+    /// PlayMuse が排他モードでの再生を開始・終了したタイミングで、MuseWiser へのレベルメーターIPC
+    /// ブロードキャストサービスの開始・停止を連動させるために使用する。
+    /// </summary>
+    event EventHandler<AudioShareMode>? ActualShareModeChanged;
+
+    /// <summary>
     /// ソースファイルのオーディオフォーマット（デコード後）。
     /// </summary>
     WaveFormat? SourceFormat { get; }

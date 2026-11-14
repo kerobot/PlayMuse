@@ -22,7 +22,22 @@ public sealed class FakeAudioPlaybackService : IAudioPlaybackService
 
     public AudioShareMode ShareMode { get; private set; }
 
-    public AudioShareMode ActualShareMode { get; private set; }
+    public AudioShareMode ActualShareMode
+    {
+        get => actualShareMode;
+        private set
+        {
+            if (actualShareMode == value)
+            {
+                return;
+            }
+
+            actualShareMode = value;
+            ActualShareModeChanged?.Invoke(this, actualShareMode);
+        }
+    }
+
+    private AudioShareMode actualShareMode;
 
     public WaveFormat? SourceFormat => null;
 
@@ -51,6 +66,8 @@ public sealed class FakeAudioPlaybackService : IAudioPlaybackService
     public event EventHandler? PlaybackCompleted;
 
     public event EventHandler<AudioErrorEventArgs>? ErrorOccurred;
+
+    public event EventHandler<AudioShareMode>? ActualShareModeChanged;
 
     public void Load(Track track)
     {
@@ -83,6 +100,11 @@ public sealed class FakeAudioPlaybackService : IAudioPlaybackService
         ShareMode = shareMode;
         ActualShareMode = shareMode;
     }
+
+    /// <summary>
+    /// テスト用に ActualShareMode を直接変更し、ActualShareModeChanged の発火を検証できるようにする。
+    /// </summary>
+    public void RaiseActualShareMode(AudioShareMode mode) => ActualShareMode = mode;
 
     public void RaiseErrorOccurred(AudioErrorEventArgs args) => ErrorOccurred?.Invoke(this, args);
 

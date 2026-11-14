@@ -103,7 +103,22 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
 
     public AudioShareMode ShareMode { get; private set; } = AudioShareMode.Shared;
 
-    public AudioShareMode ActualShareMode { get; private set; } = AudioShareMode.Shared;
+    public AudioShareMode ActualShareMode
+    {
+        get => actualShareMode;
+        private set
+        {
+            if (actualShareMode == value)
+            {
+                return;
+            }
+
+            actualShareMode = value;
+            ActualShareModeChanged?.Invoke(this, actualShareMode);
+        }
+    }
+
+    private AudioShareMode actualShareMode = AudioShareMode.Shared;
 
     public WaveFormat? SourceFormat => reader?.WaveFormat;
 
@@ -155,6 +170,8 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
     public event EventHandler? PlaybackCompleted;
 
     public event EventHandler<AudioErrorEventArgs>? ErrorOccurred;
+
+    public event EventHandler<AudioShareMode>? ActualShareModeChanged;
 
     public void Load(Track track)
     {
@@ -717,6 +734,11 @@ public sealed class AudioPlaybackService(ILogger<AudioPlaybackService>? logger =
 
         spectrumAnalyzer?.Reset();
         channelLevelMeter?.Reset();
+
+        // 出力が解放されたため、実際の共有モードもリセットする。
+        // これにより、排他モード再生の終了（Stop/Dispose/デバイス変更等）を
+        // ActualShareModeChanged イベント経由で検知できる。
+        ActualShareMode = AudioShareMode.Shared;
 
         if (logger.IsEnabled(LogLevel.Debug))
         {

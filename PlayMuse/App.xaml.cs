@@ -24,6 +24,9 @@ public partial class App : Application
         ConfigureServices(services);
         serviceProvider = services.BuildServiceProvider();
 
+        // ActualShareModeChanged の監視を早期に開始するため、ここで明示的に解決する。
+        serviceProvider.GetRequiredService<ILevelMeterBroadcastService>().Start();
+
         var mainWindow = serviceProvider.GetRequiredService<MainWindow>();
         mainWindow.Show();
     }
@@ -51,6 +54,10 @@ public partial class App : Application
                 {
                     logger.LogInformation("App.OnExit: アプリケーション終了処理を開始します。");
                 }
+
+                // ILevelMeterBroadcastService（Named Pipe サーバー）を IAudioPlaybackService より先に解放する。
+                var levelMeterBroadcastService = serviceProvider.GetService<ILevelMeterBroadcastService>();
+                levelMeterBroadcastService?.Dispose();
 
                 // IAudioPlaybackService を明示的に先行 Dispose
                 var playbackService = serviceProvider.GetService<IAudioPlaybackService>();
@@ -116,6 +123,7 @@ public partial class App : Application
         services.AddSingleton<ISpectrumAnalyzerService, SpectrumAnalyzerService>();
         services.AddSingleton<IChannelLevelMeterService, ChannelLevelMeterService>();
         services.AddSingleton<IAudioPlaybackService, AudioPlaybackService>();
+        services.AddSingleton<ILevelMeterBroadcastService, NamedPipeLevelMeterBroadcastService>();
         services.AddSingleton<IPlaylistService, PlaylistService>();
         services.AddSingleton<IDispatcherService, WpfDispatcherService>();
         services.AddSingleton<IFileDialogService, FileDialogService>();

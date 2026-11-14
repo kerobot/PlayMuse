@@ -4,7 +4,9 @@
     <File Path="qiita-playmuse-bitperfect.md" />
     <File Path="README.md" />
   </Folder>
+  <Project Path="MuseWiser/MuseWiser.csproj" />
   <Project Path="PlayMuse.Core/PlayMuse.Core.csproj" />
+  <Project Path="PlayMuse.LevelMeterIpc/PlayMuse.LevelMeterIpc.csproj" />
   <Project Path="PlayMuse.Tests/PlayMuse.Tests.csproj" />
   <Project Path="PlayMuse/PlayMuse.csproj" />
 </Solution>
