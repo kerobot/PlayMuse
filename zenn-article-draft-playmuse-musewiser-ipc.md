@@ -16,13 +16,70 @@ https://zenn.dev/kerobot/articles/90190d8d203740
 
 https://zenn.dev/kerobot/articles/3dbea3af69a50e
 
-PlayMuse はビットパーフェクト再生のために WASAPI 排他モードで出力デバイスを専有してしまうのですが、そうすると困ったことが起きます。以前作った「レベルメーター・スペクトラムアナライザ表示アプリ」MuseWiser（旧：WeatherWiser） が、出力デバイスをキャプチャできなくなってしまうのです。
+PlayMuse はビットパーフェクト再生のために WASAPI 排他モードで出力デバイスを専有してしまうのですが、そうすると困ったことが起きます。以前作った「時計・天気予報・音量メーター・スペクトラムアナライザ表示アプリ」WeatherWiser（今回 MuseWiser へ改名） が、出力デバイスをキャプチャできなくなってしまうのです。
 
 今回は、この「排他モード中は見た目のメーターが死んでしまう」問題を、プロセス間通信（Named Pipe）で解決したので、対応の過程で踏んだいくつかの不具合や設計判断も含めて紹介します。
+
+WeatherWiser はもともと音量メーターとスペクトラムアナライザも表示できていたのですが、今回あらためて PlayMuse と連携させることを目的に、それらの機能をベースに MuseWiser として全く新しく作り直すことにしました。
+
+見た目も以前よりオシャレ（当社比）にしています。今回は、その作り直しのところと、その上で「排他モード中は見た目のメーターが死んでしまう」問題を、プロセス間通信（Named Pipe）で解決したところの両方を、対応の過程で踏んだいくつかの不具合や設計判断も含めて紹介します。
 
 ## 作ったもの
 
 https://github.com/kerobot/PlayMuse
+
+## WeatherWiser から MuseWiser への作り直し
+
+MuseWiser は、もともと時計・天気予報・音量メーター・スペクトラムアナライザを表示していたデスクトップウィジェット「WeatherWiser」が実装していた機能をベースにしつつ PlayMuse と連携できるように新しく作り直したものです。
+
+表示している情報の自体は大きくは変わっていませんが、「PlayMuse の再生状況と確実に連携できるウィジェット」として作り直すにあたり、実装や設定の持ち方だけでなく見た目も以前よりかっこよく（当社比）作り直しました。
+
+デスクトップウィジェットなので、以下のような一般的なアプリとは違う作り込みが必要になります。
+
+- ウィンドウ枠やタイトルバーを消し、背景を透過させた「貼り付いている感」の見た目にする（`WindowStyle="None"` + `AllowsTransparency="True"` + `Background="Transparent"`）
+- タスクバーに表示させず、常に最前面（またはデスクトップに張り付くように最背面）に表示する
+- ウィンドウの上でクリックしても、裏にあるデスクトップアイコンやウィンドウの操作を妨げないようにする（クリックスルー）
+- マルチモニター環境を考慮し、どのモニターのどの位置に表示するかを設定できるようにする
+
+クリックスルーは、WPF 標準の仕組みだけでは実現できないため、Win32 API の `GetWindowLong` / `SetWindowLong` を P/Invoke で呼び出し、拡張ウィンドウスタイルに `WS_EX_TRANSPARENT` を立てる方式にしました。
+
+```csharp
+/// <summary>
+/// マウスメッセージを透過させる（クリックスルー）ウィンドウ拡張スタイル。
+/// </summary>
+private const int WS_EX_TRANSPARENT = 0x00000020;
+
+/// <summary>
+/// レイヤードウィンドウとして扱うための拡張スタイル（WS_EX_TRANSPARENT と併用する必要がある）。
+/// </summary>
+private const int WS_EX_LAYERED = 0x00080000;
+```
+
+`WeatherWiser` の時代は ViewModel があまり分割されていなかったのですが、作り直しにあたって MuseWiser では ViewModel を機能ごとに分割し、`MainViewModel` がそれぞれを束ねる形に整理しました。
+
+```csharp
+public sealed class MainViewModel : ViewModelBase, IAsyncDisposable
+{
+    public ClockViewModel Clock { get; }
+    public WeatherViewModel Weather { get; }
+    public VolumeMeterViewModel VolumeMeter { get; }
+    public AudioDeviceInfoViewModel AudioDevice { get; }
+
+    public MainViewModel(ClockViewModel clock, WeatherViewModel weather, VolumeMeterViewModel volumeMeter, AudioDeviceInfoViewModel audioDevice)
+    {
+        Clock = clock;
+        Weather = weather;
+        VolumeMeter = volumeMeter;
+        AudioDevice = audioDevice;
+        Weather.Start();
+        VolumeMeter.Start();
+    }
+}
+```
+
+`VolumeMeterViewModel` と `AudioDeviceInfoViewModel` は、WeatherWiser 時代からあった音量メーター・スペクトラムアナライザ表示を、MuseWiser では改めて責務ごとの ViewModel として作り直したものです。この整理をしておいたことで、この後の「PlayMuse との Named Pipe 連携」を `AudioDeviceInfoViewModel` 側だけで完結させることができました。
+
+表示内容は L/R レベルメーターと 16 バンドのスペクトラムアナライザですが、パネルのデザインも以前よ洗練したものとしています。
 
 ## 困っていたこと
 
@@ -37,16 +94,16 @@ MuseWiser は WASAPI ループバックキャプチャで既定の出力デバ�
 ```
 PlayMuse (排他モードで再生中)
   └─ NamedPipeLevelMeterBroadcastService
-	・排他モードに入ったときだけ Named Pipe サーバーを起動
-	・33ms 周期（≒30fps、スペクトラムアナライザ表示に合わせた間隔）でレベル・スペクトラムを送信
-	・接続時にはデバイス名・サンプルレート・チャンネル数も送る
-		  │
-		  │ Named Pipe "PlayMuse.LevelMeter"
-		  ▼
+    ・排他モードに入ったときだけ Named Pipe サーバーを起動
+    ・33ms 周期（≒30fps、スペクトラムアナライザ表示に合わせた間隔）でレベル・スペクトラムを送信
+    ・接続時にはデバイス名・サンプルレート・チャンネル数も送る
+          │
+          │ Named Pipe "PlayMuse.LevelMeter"
+          ▼
 MuseWiser
   └─ AdaptiveAudioCaptureService
-	・パイプ経由のキャプチャサービスと WASAPI ループバックキャプチャサービスを両方常時起動しておき、
-	  パイプの接続状態に応じて「採用するデータの出どころ」だけを切り替える
+    ・パイプ経由のキャプチャサービスと WASAPI ループバックキャプチャサービスを両方常時起動しておき、
+      パイプの接続状態に応じて「採用するデータの出どころ」だけを切り替える
 ```
 
 ポイントは、MuseWiser 側で「パイプが使えるときはパイプ、使えないときは WASAPI ループバック」という**自動フォールバック**を、`IAudioCaptureService` という共通インターフェースの裏側で実現しているところです。ViewModel 側はこの切り替えをまったく意識する必要がありません。
@@ -54,12 +111,12 @@ MuseWiser
 ```csharp
 public interface IAudioCaptureService : IDisposable
 {
-	event EventHandler<AudioCaptureDataEventArgs>? DataAvailable;
-	event EventHandler<AudioCaptureDeviceInfo>? DeviceChanged;
-	event EventHandler<AudioCaptureConnectionState>? ConnectionStateChanged;
+    event EventHandler<AudioCaptureDataEventArgs>? DataAvailable;
+    event EventHandler<AudioCaptureDeviceInfo>? DeviceChanged;
+    event EventHandler<AudioCaptureConnectionState>? ConnectionStateChanged;
 
-	void Start();
-	void Stop();
+    void Start();
+    void Stop();
 }
 ```
 
@@ -72,8 +129,8 @@ public interface IAudioCaptureService : IDisposable
 ```csharp
 internal enum LevelMeterMessageType : byte
 {
-	DeviceInfo = 0,
-	Frame = 1,
+    DeviceInfo = 0,
+    Frame = 1,
 }
 ```
 
@@ -82,17 +139,17 @@ internal enum LevelMeterMessageType : byte
 ```csharp
 private static async Task ReadExactlyAsync(Stream stream, byte[] buffer, CancellationToken cancellationToken)
 {
-	var totalRead = 0;
-	while (totalRead < buffer.Length)
-	{
-		var read = await stream.ReadAsync(buffer.AsMemory(totalRead), cancellationToken).ConfigureAwait(false);
-		if (read == 0)
-		{
-			throw new EndOfStreamException("パイプ接続が切断されました。");
-		}
+    var totalRead = 0;
+    while (totalRead < buffer.Length)
+    {
+        var read = await stream.ReadAsync(buffer.AsMemory(totalRead), cancellationToken).ConfigureAwait(false);
+        if (read == 0)
+        {
+            throw new EndOfStreamException("パイプ接続が切断されました。");
+        }
 
-		totalRead += read;
-	}
+        totalRead += read;
+    }
 }
 ```
 
@@ -109,16 +166,16 @@ private static async Task ReadExactlyAsync(Stream stream, byte[] buffer, Cancell
 ```csharp
 private void OnRecordingStopped(int generation, StoppedEventArgs args)
 {
-	lock (_gate)
-	{
-		if (!_started || generation != _recorderGeneration)
-		{
-			return;
-		}
+    lock (_gate)
+    {
+        if (!_started || generation != _recorderGeneration)
+        {
+            return;
+        }
 
-		_logger.LogInformation("ループバックキャプチャが停止しました（デバイス占有解放など）。再接続を試みます。");
-		ScheduleRestartLocked();
-	}
+        _logger.LogInformation("ループバックキャプチャが停止しました（デバイス占有解放など）。再接続を試みます。");
+        ScheduleRestartLocked();
+    }
 }
 ```
 
@@ -140,38 +197,38 @@ WasapiLoopbackAudioService: 既定の再生デバイスが排他モードで使�
 ```csharp
 public void Suspend()
 {
-	lock (_gate)
-	{
-		if (_suspended)
-		{
-			return;
-		}
+    lock (_gate)
+    {
+        if (_suspended)
+        {
+            return;
+        }
 
-		_suspended = true;
-		_restartCts?.Cancel();
-		_restartCts?.Dispose();
-		_restartCts = null;
+        _suspended = true;
+        _restartCts?.Cancel();
+        _restartCts?.Dispose();
+        _restartCts = null;
 
-		StopCaptureLocked();
-	}
+        StopCaptureLocked();
+    }
 }
 
 public void Resume()
 {
-	lock (_gate)
-	{
-		if (!_suspended)
-		{
-			return;
-		}
+    lock (_gate)
+    {
+        if (!_suspended)
+        {
+            return;
+        }
 
-		_suspended = false;
+        _suspended = false;
 
-		if (_started)
-		{
-			StartCaptureOnDefaultDevice();
-		}
-	}
+        if (_started)
+        {
+            StartCaptureOnDefaultDevice();
+        }
+    }
 }
 ```
 
@@ -180,11 +237,11 @@ public void Resume()
 ```csharp
 private void ScheduleRestartLocked()
 {
-	if (!_started || _suspended)
-	{
-		return;
-	}
-	// ...リトライをスケジュール
+    if (!_started || _suspended)
+    {
+        return;
+    }
+    // ...リトライをスケジュール
 }
 ```
 
@@ -193,21 +250,21 @@ private void ScheduleRestartLocked()
 ```csharp
 private void OnPipeConnectionStateChanged(object? sender, AudioCaptureConnectionState state)
 {
-	var isActive = state == AudioCaptureConnectionState.Connected;
-	// ...（状態が変わらなければ何もしない）
+    var isActive = state == AudioCaptureConnectionState.Connected;
+    // ...（状態が変わらなければ何もしない）
 
-	_isPipeActive = isActive;
+    _isPipeActive = isActive;
 
-	if (isActive)
-	{
-		// パイプが有効な間はループバックのリトライを止める
-		_loopbackService.Suspend();
-	}
-	else
-	{
-		// パイプが切れたら即座に復帰を試みる
-		_loopbackService.Resume();
-	}
+    if (isActive)
+    {
+        // パイプが有効な間はループバックのリトライを止める
+        _loopbackService.Suspend();
+    }
+    else
+    {
+        // パイプが切れたら即座に復帰を試みる
+        _loopbackService.Resume();
+    }
 }
 ```
 
@@ -223,5 +280,6 @@ private void OnPipeConnectionStateChanged(object? sender, AudioCaptureConnection
 - **リトライの間隔は「復帰の速さ」と「ログの静かさ」のトレードオフ。** 指数バックオフは一見賢そうに見えますが、ユーザー体験に直結する箇所では固定間隔のほうが素直に良いこともあります。
 - **Visual Studio の「例外がスローされました」通知は、catch されていても出ることがある。** 非同期処理の await 継続のたびに first-chance 例外が複数回通知されることがあるので、ログの件数だけで慌てず、実際に catch されているか・ハンドリングされているかを見るのが大事です。
 - **世代番号（generation）でイベントの新旧を判定するパターンは、非同期のコールバックが絡む再起動処理との相性が良い。** 意図した停止と予期しない停止を区別できるので、今回のような「自動復旧はしたいけど、意図的な停止では復旧させたくない」というケースにぴったりでした。
+- **「機能は引き継ぐ。でも連携先を増やすなら、思い切って作り直したほうが早い。」** WeatherWiser のときも音量メーター・スペクトラムアナライザは表示できていましたが、PlayMuse と確実に連携できるようにするために、ViewModel の分割やサービスの起動・終了ライフサイクルといった内部のつくりを軸から作り直しました。そのついでに見た目も以前よりかっこよくしています。音声キャプチャという「常時動き続ける」機能を本格的に組み込むにあたっては、機能をベースにしつつ土台から作り直すくらいの気持ちで整理するのも悪くないな、と感じています。
 
 PlayMuse と MuseWiser、見た目にはただのレベルメーターの連動ですが、裏側では排他モードならではの細かい調整がいろいろと必要でした。今後、PlayMuse 側で新しい情報（例えば再生中の曲情報など）をパイプで渡したくなったときのために、今回整理した設計をベースに拡張していきたいと思います。

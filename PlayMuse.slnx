@@ -1,8 +1,10 @@
 <Solution>
   <Folder Name="/ソリューション項目/">
     <File Path="LICENSE.txt" />
+    <File Path="PlayMuse-MuseWiser-IPC-Notes.md" />
     <File Path="qiita-playmuse-bitperfect.md" />
     <File Path="README.md" />
+    <File Path="zenn-article-draft-playmuse-musewiser-ipc.md" />
   </Folder>
   <Project Path="MuseWiser/MuseWiser.csproj" />
   <Project Path="PlayMuse.Core/PlayMuse.Core.csproj" />
